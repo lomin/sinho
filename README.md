@@ -1,6 +1,6 @@
 # sinho
 
-*sinho* provides a matcher called ```=* ``` for writing tests with a high signal-to-noise ratio.
+*sinho* provides a matcher called ```=*``` for writing tests with a high signal-to-noise ratio.
 
 ## Rationale
 
