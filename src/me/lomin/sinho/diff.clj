@@ -48,7 +48,27 @@
      (s/multi-path insert-path-segment-if-absent-nav
                    insert-within-path-segment)]))
 
-(defn grow-path-tree [tree [left-path right-path]]
+(defn grow-path-tree
+  " Given a `left-source` and a `right-source`, a path-tree is a representation
+   of the transformations to the left-source and the order that these transformations
+   should be applied to the `left-source` to fulfill the property
+   `(=* left-source right-source)`. A path-tree can be transformed by
+   `path-tree->diff-transformer` into a transform function for `specter/multi-transform`.
+
+   A path-tree contains nodes. Nodes that have no children are called leafs.
+   Nodes represent how to iteratively navigate to a substructure of the `left-source` and
+   leafs additionally represent that the substructure to which its is navigating to
+   needs some kind of transformation in order to to fulfill the property
+   `(=* left-source right-source)`. What kind of transformation that is, is no
+   responsibility of the path-tree.
+
+  This function `grow-path-tree` grows the path-tree one piece. In order to grow a
+  valid path-tree, i.e. a path-tree that can be converted in a diff-transformer that
+  will produce a valid diff, it is important that the first call of `grow-path-tree`
+  must be with `root-node` as `tree`. Additionally, if one reduces over a sequence of
+  `[left-path right-path]` pairs, the order of the sequence matters, because the tree
+  grows from the leafs to the root."
+  [tree [left-path right-path]]
   (let [insert-leaf-child-nav [children-nav (terminal-nav ::leaf right-path)]]
     (s/multi-transform (reduce upsert-navigator
                                insert-leaf-child-nav
@@ -101,7 +121,17 @@
                         :else %)
                  selector-tree))
 
-(defn diff [paths [left-source right-source]]
+(defn diff
+  "Returns a diff of `left-source` and `right-source`.
+   `paths` is a sequence of differences encoded as paths between `left-source` and
+   `right-source`. It is not possible to reduce over all the paths and transform the
+   substructure the path points to directly, because consecutive paths could be
+   invalidated by the transformation. Instead, the transformations need to happen
+   in a single pass, beginning with the deepest substructure and according to the order
+   of the comparator `compare-paths`. The transformation in a single pass can be achieved
+   by transforming `paths` - the sequence of differences - into a path-tree, i.e. a tree of
+   differences, where the same subpaths are shared and only leafs of the tree differ."
+  [paths [left-source right-source]]
   (as-> paths $
         (sort compare-paths $)
         (reduce grow-path-tree root-node $)
