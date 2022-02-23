@@ -61,13 +61,10 @@
 
 (defmulti heuristic heuristic-dispatch)
 
-(defn calculate-complete-costs [problem]
-  (+ (:costs problem) (transduce (map heuristic) + (:stack problem))))
-
 (defn atom-count-seq [x] (::count-seq (meta x)))
 (defn atom-count [x] (reduce + 1 (atom-count-seq x)))
 
-(defmethod heuristic 0 [comparison]
+(defmethod heuristic 0 [_]
   0)
 
 (defmethod heuristic :default [comparison]
@@ -76,35 +73,42 @@
 (defmethod heuristic :atom [[left right]]
   (if (= left right) 0 1))
 
-(defmethod heuristic :sequential [[left-xs right-xs :as comparison]]
-  (let [[a-xs b-xs] (if (<= (count left-xs) (count right-xs))
-                      comparison
-                      [right-xs left-xs])
-        diff-count (- (count b-xs) (count a-xs))]
+(defn abs [number]
+  (if (pos? number)
+    number
+    (- number)))
+
+(defmethod heuristic :sequential [[left-xs right-xs]]
+  (let [left-count (count left-xs)
+        right-count (count right-xs)
+        b-xs (if (<= left-count right-count)
+               right-xs
+               left-xs)
+        diff-count (abs (- left-count right-count))]
     (transduce (take diff-count) + (sort (atom-count-seq b-xs)))))
 
-(defn set|map:heuristic [[left right]]
+(defn heuristic:set|map [[left right]]
   (if (<= (count left) (count right))
     0
     (let [diff-count (- (count left) (count right))]
       (transduce (take diff-count) + (sort (atom-count-seq left))))))
 
 (defmethod heuristic :set [comparison]
-  (set|map:heuristic comparison))
+  (heuristic:set|map comparison))
 
 (defmethod heuristic :map [comparison]
-  (set|map:heuristic comparison))
+  (heuristic:set|map comparison))
 
-(defn add-diff [problem left]
-  (-> problem
-      (update :diffs conj [(:left-path problem) (:right-path problem)])
-      (update :costs + (atom-count left))))
+(defn add-diff [node left]
+  (-> node
+      (update :diffs conj [(:left-path node) (:right-path node)])
+      (a-star/inc-costs (atom-count left))))
 
-(defmethod children :default [[left] problem]
-  (list (add-diff problem left)))
+(defmethod children :default [[left] node]
+  (list (add-diff node left)))
 
-(defmethod children :atom [[left right] problem]
-  (list (cond-> problem
+(defmethod children :atom [[left right] node]
+  (list (cond-> node
                 (not= left right) (add-diff left))))
 
 (defmacro stack-updates [path-0 values-0 & [_ pred path-1 values-1]]
@@ -122,33 +126,33 @@
   (let [xs* (xs-f xs)]
     (vary-meta xs* assoc ::index (inc index))))
 
-(defn seq:child-default [problem
+(defn seq:child-default [node
                          [left left-index :as left-indexed]
                          [right right-index :as right-indexed]]
-  (-> problem
+  (-> node
       (update :stack conj [(seq:stack-updates left-indexed seq:dis)
                            (seq:stack-updates right-indexed seq:dis)])
       (update :stack into (seq:stack-updates-default left-index right-index left right))))
 
-(defn seq:child-delete-first-element [problem
+(defn seq:child-delete-first-element [node
                                       [left left-index :as left-indexed]
                                       [_ _ right-seq]]
-  (-> problem
+  (-> node
       (update :stack conj [(seq:stack-updates left-indexed seq:dis)
                            right-seq])
-      (update :diffs conj [(conj (:left-path problem) [:index left-index])
-                           (conj (:right-path problem) [:index -1 :nil])])
-      (update :costs + (atom-count left))))
+      (update :diffs conj [(conj (:left-path node) [:index left-index])
+                           (conj (:right-path node) [:index -1 :nil])])
+      (a-star/inc-costs (atom-count left))))
 
-(defn seq:child-add-first-element [problem
+(defn seq:child-add-first-element [node
                                    [_ left-index :as left-indexed]
                                    [right right-index :as right-indexed]]
-  (-> problem
+  (-> node
       (update :stack conj [(seq:stack-updates left-indexed identity)
                            (seq:stack-updates right-indexed seq:dis)])
-      (update :diffs conj [(conj (:left-path problem) [:index left-index :before])
-                           (conj (:right-path problem) [:index right-index])])
-      (update :costs + (atom-count right))))
+      (update :diffs conj [(conj (:left-path node) [:index left-index :before])
+                           (conj (:right-path node) [:index right-index])])
+      (a-star/inc-costs (atom-count right))))
 
 (defn seq:first-or-absent [xs]
   (if (seq xs) (first xs) ::diff/nil))
@@ -156,31 +160,31 @@
 (defn seq:meta-index [xs]
   (::index (meta xs) 0))
 
-(defmethod children :sequential [comparison problem]
+(defmethod children :sequential [comparison node]
   (let [[[left :as left-indexed]
          [right :as right-indexed]]
         (map (juxt seq:first-or-absent seq:meta-index identity) comparison)]
     (if (and (= left ::diff/nil) (= right ::diff/nil))
-      (list problem)
+      (list node)
       (cond-> (list)
               (and (not= left ::diff/nil) (not= right ::diff/nil))
-              (conj (seq:child-default problem left-indexed right-indexed))
+              (conj (seq:child-default node left-indexed right-indexed))
               (not= left ::diff/nil)
-              (conj (seq:child-delete-first-element problem left-indexed right-indexed))
+              (conj (seq:child-delete-first-element node left-indexed right-indexed))
               (not= right ::diff/nil)
-              (conj (seq:child-add-first-element problem left-indexed right-indexed))))))
+              (conj (seq:child-add-first-element node left-indexed right-indexed))))))
 
 (defn set|map:ensure-same-length-as [xs compare-xs nil-value]
   (cond-> xs (< (count xs) (count compare-xs)) (conj nil-value)))
 
 (defn set|map:children
-  [set|map:stack-updates dis nil-value [left right] problem]
+  [set|map:stack-updates dis nil-value [left right] node]
   (if (empty? left)
-    (list problem)
+    (list node)
     (let [l (first left)
           left-1 (dis left l)]
       (for [r (-> right (set|map:ensure-same-length-as left nil-value))]
-        (cond-> problem
+        (cond-> node
                 (seq left-1) (update :stack conj [left-1 (dis right r)])
                 :always (update :stack into (set|map:stack-updates l r)))))))
 
@@ -190,9 +194,9 @@
   (stack-updates [[:set left] [:set right]] [left right]))
 
 (defmethod children :set
-  [comparison problem]
+  [comparison node]
   (set|map:children set:stack-updates
-                    set:dis ::diff/nil comparison problem))
+                    set:dis ::diff/nil comparison node))
 
 (defn map:dis [m [k]] (vary-meta (dissoc m k) update ::count-seq rest))
 
@@ -205,38 +209,24 @@
                  [left-value right-value]))
 
 (defmethod children :map
-  [comparison problem]
+  [comparison node]
   (set|map:children map:stack-updates
-                    map:dis [::diff/nil ::diff/nil] comparison problem))
+                    map:dis [::diff/nil ::diff/nil] comparison node))
 
-(defn stack? [problem]
-  (boolean (seq (:stack problem))))
-
-(defn better? [p0 p1]
-  (let [stack-0? (stack? p0)
-        stack-1? (stack? p1)]
-    (neg? (compare [stack-0? (:costs p0)]
-                   [stack-1? (:costs p1)]))))
-
-(defn choose-better [defender challenger]
-  (if (better? challenger defender)
-    challenger
-    defender))
-
-(defn push-path [problem [left-path right-path]]
-  (-> problem
+(defn push-path [node [left-path right-path]]
+  (-> node
       (update :left-path conj left-path)
       (update :right-path conj right-path)
       (update :stack pop)))
 
-(defn pop-path [problem]
-  (-> problem
+(defn pop-path [node]
+  (-> node
       (update :left-path pop)
       (update :right-path pop)
       (update :stack pop)))
 
-(defn update-path [problem]
-  (loop [{stack :stack :as p} problem]
+(defn update-path [node]
+  (loop [{stack :stack :as p} node]
     (if-let [[k v] (peek stack)]
       (condp = k
         ::push (recur (push-path p v))
@@ -267,54 +257,42 @@
 (defn prepare [x]
   (s/transform coll-walker+meta-nav add-count-meta x))
 
-(a-star/def-a-star EqualStarProblem [costs stack seen]
-  a-star/CostPredictable
-  (back+forward-costs [_]
-    (+ costs (transduce (map heuristic) + stack)))
-  search/Searchable
+(a-star/def-a-star EqualStarNode [stack]
+  a-star/AStar
+  (forward-costs [_] (transduce (map heuristic) + stack))
+  (a-star-identity [_] stack)
+  (goal? [_] (empty? stack))
+  search/SearchableNode
   (children [this]
-    (a-star/with-children
-      (when-let [comparison (and (not (contains? @seen stack))
-                                 (peek stack))]
-        (vswap! seen conj stack)
-        (children comparison (update this :stack pop)))))
-  (xform [_]
-    (a-star/with-xform
-      (map update-path)))
-  search/AsyncSearchable
-  (xform-async [_]
-    (a-star/with-xform-async
-      (map #(assoc % :seen (volatile! #{})))))
-  search/ExhaustiveSearch
-  (stop [{:keys [diffs] :as this}]
+    (when-let [comparison (peek stack)]
+      (children comparison (update this :stack pop))))
+  (stop [{:keys [diffs] :as this} _]
     (a-star/with-stop
-      (when (not (stack? this))
+      this
+      (when (a-star/goal? this)
         (cond-> this
                 (empty? diffs) (reduced)))))
-  search/Combinable
-  (combine [_ other] other)
-  (combine-async [this other] (choose-better this other)))
+  (combine [this other] this)
+  search/ParallelSearchableNode
+  (reduce-combine [this other] (a-star/choose-better this other)))
 
-(defn equal-star-problem [left right]
+(defn equal-star-search-config [left right]
   (let [left* (prepare left)
         right* (prepare right)]
     (-> {:source     [left* right*]
          :stack      (list [left* right*])
-         :diffs      '()
-         :costs      0
+         :diffs      ()
          :left-path  []
-         :right-path []
-         :seen       (volatile! #{})}
-        (map->EqualStarProblem)
-        (a-star/init))))
+         :right-path []}
+        (map->EqualStarNode)
+        (a-star/init {:search-xf (a-star/with-xform (map update-path))}))))
 
 (defn =*
   ([a b] (=* a b nil))
   ([a b options]
-   (as-> (equal-star-problem a b) $
-         (search/parallel-depth-first-search $
-                                             (merge {:parallelism 1 :chan-size 1}
-                                                    options))
+   (as-> (equal-star-search-config a b) $
+         (search/search (merge $ options))
          (if (seq (:stack $))
            :timeout
            (diff/diff (:diffs $) (:source $))))))
+
