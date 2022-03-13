@@ -269,7 +269,11 @@
 
   (is (= {[1 (->Mismatch 2 3)] (->Mismatch :b :c)}
          (=* {(seq (to-array #{1 2})) :b}
-             {(seq (to-array #{1 3})) :c}))))
+             {(seq (to-array #{1 3})) :c})))
+
+  (is (= [[:a (->Mismatch 1 2)]]
+         (=* (seq {:a 1})
+             (seq {:a 2})))))
 
 (deftest prepare-test
   (is (= 22
@@ -360,7 +364,3 @@
                                      timeout parallelism chan-size
                                      d])
                false)))))
-
-(comment TODO
-         (=* (seq {:a 1})
-             (seq {:a 2})))

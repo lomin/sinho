@@ -238,21 +238,26 @@
   (map (comp inc (partial apply +) #(::count-seq % '(0)) meta)))
 
 (defn add-count-meta [x]
-  (let [xs (if (map? x) (mapcat seq x) (seq x))
-        xf (cond-> meta-count-xf
-                   (map? x) (comp (partition-all 2)
-                                  (map (partial apply +))))]
-    (as-> x $
-          (->> xs
-               (into [] xf)
-               (vary-meta $ assoc ::count-seq)))))
+  (if (map-entry? x)
+    ;; map-entries are unable to hold meta-data, so continue as vector
+    (recur (vec x))
+    (let [xs (if (map? x) (mapcat seq x) (seq x))
+          xf (cond-> meta-count-xf
+                     (map? x) (comp (partition-all 2)
+                                    (map (partial apply +))))]
+      (as-> x $
+            (->> xs
+                 (into [] xf)
+                 (vary-meta $ assoc ::count-seq))))))
 
 (def coll-walker+meta-nav
   (s/recursive-path
     [] p
     (s/if-path coll?
-               (s/continue-then-stay
-                 [s/ALL-WITH-META p]))))
+               (s/if-path map-entry?
+                          (s/stay-then-continue p)
+                          (s/continue-then-stay
+                            [s/ALL-WITH-META p])))))
 
 (defn prepare [x]
   (s/transform coll-walker+meta-nav add-count-meta x))
