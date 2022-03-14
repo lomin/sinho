@@ -238,17 +238,20 @@
   (map (comp inc (partial apply +) #(::count-seq % '(0)) meta)))
 
 (defn add-count-meta [x]
+  (let [xs (if (map? x) (mapcat seq x) (seq x))
+        xf (cond-> meta-count-xf
+                   (map? x) (comp (partition-all 2)
+                                  (map (partial apply +))))]
+    (as-> x $
+          (->> xs
+               (into [] xf)
+               (vary-meta $ assoc ::count-seq)))))
+
+(defn do-prepare [x]
   (if (map-entry? x)
     ;; map-entries are unable to hold meta-data, so continue as vector
-    (recur (vec x))
-    (let [xs (if (map? x) (mapcat seq x) (seq x))
-          xf (cond-> meta-count-xf
-                     (map? x) (comp (partition-all 2)
-                                    (map (partial apply +))))]
-      (as-> x $
-            (->> xs
-                 (into [] xf)
-                 (vary-meta $ assoc ::count-seq))))))
+    (vec x)
+    (add-count-meta x)))
 
 (def coll-walker+meta-nav
   (s/recursive-path
@@ -260,7 +263,7 @@
                             [s/ALL-WITH-META p])))))
 
 (defn prepare [x]
-  (s/transform coll-walker+meta-nav add-count-meta x))
+  (s/transform coll-walker+meta-nav do-prepare x))
 
 (a-star/def-a-star EqualStarNode [stack]
   a-star/AStar

@@ -287,7 +287,12 @@
            (matcher/prepare [4
                              5
                              {{1 2 3 4} {5 6 7 8}}
-                             #{4 5 [6 7]}])))))
+                             #{4 5 [6 7]}]))))
+
+  (is (= (matcher/atom-count-seq
+           (matcher/prepare [[[[:a 1] [:b 2]] [[:c 2] [:d 4]]]]))
+         (matcher/atom-count-seq
+           (matcher/prepare (seq {(seq {:a 1 :b 2}) (seq {:c 2 :d 4})}))))))
 
 (defn calculate-back+forward-costs [left right]
   (a-star/calculate-back+forward-costs
