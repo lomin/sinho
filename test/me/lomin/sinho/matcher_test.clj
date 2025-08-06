@@ -3,7 +3,7 @@
             [me.lomin.chatda.search :as search]
             [me.lomin.sinho.matcher :refer [=*] :as matcher]
             [com.rpl.specter :as s]
-            [lambdaisland.deep-diff.diff :refer [->Mismatch ->Deletion ->Insertion left-undiff right-undiff] :as diff1]
+            [lambdaisland.deep-diff2.diff-impl :refer [->Mismatch ->Deletion ->Insertion left-undiff] :as diff2]
             [arrangement.core :refer [rank]]
             [me.lomin.sinho.diff :as diff]
             [clojure.test.check.clojure-test :as test]
@@ -155,40 +155,43 @@
 (deftest path-to-diff
   (is (= [1 (->Mismatch 2 3)]
          (=* [1 2] [1 3])
-         (diff1/diff [1 2] [1 3])))
+         (diff2/diff [1 2] [1 3])))
 
   (is (= [1 (->Insertion 2) (->Insertion 3)]
          (=* [1] [1 2 3])
-         (diff1/diff [1] [1 2 3])))
+         (diff2/diff [1] [1 2 3])))
 
   (is (= [(->Mismatch nil 0) 1]
          (=* [nil 1] [0 1])
-         (diff1/diff [nil 1] [0 1])))
+         (diff2/diff [nil 1] [0 1])))
 
   (is (= [(->Deletion -1)]
          (=* [-1] '())
-         (diff1/diff [-1] '())))
+         (diff2/diff [-1] '())))
 
   (is (= #{1 (->Deletion 2)}
          (=* #{1 2} #{1})
-         (diff1/diff #{1 2} #{1})))
+         (diff2/diff #{1 2} #{1})))
 
   (is (= [1 (->Insertion 2)]
          (=* [1] [1 2])
-         (diff1/diff [1] [1 2])))
+         (diff2/diff [1] [1 2])))
 
-  (is (= #{1 (->Mismatch 2 3)}
-         (=* #{1 2} #{1 3})
-         (diff1/diff #{1 2} #{1 3})))
+  (testing "difference from diff2"
+    (is (= #{1 (->Mismatch 2 3)}
+           (=* #{1 2} #{1 3})))
+
+    (is (= #{1 (->Deletion 2) (->Insertion 3)}
+           (diff2/diff #{1 2} #{1 3}))))
 
   (is (= #{1 2}
          (=* #{1 2} #{1 2})
-         (diff1/diff #{1 2} #{1 2})))
+         (diff2/diff #{1 2} #{1 2})))
 
   (is (= {:a {(->Deletion :b) 1}}
          (=* {:a {:b 1}}
              {:a {}})
-         (diff1/diff {:a {:b 1}}
+         (diff2/diff {:a {:b 1}}
                      {:a {}})))
 
   (is (= {{(->Deletion :b) 1
@@ -198,7 +201,7 @@
 
   (is (= {(->Deletion {:b 1 :c 2}) :a
           (->Insertion {:c 2})     :a}
-         (diff1/diff {{:b 1 :c 2} :a}
+         (diff2/diff {{:b 1 :c 2} :a}
                      {{:c 2} :a})))
 
   (is (= [#{1} #{3}]
@@ -209,7 +212,7 @@
           #{(->Deletion 4) 3}]
          (=* [#{1 2} #{3 4}]
              [#{1} #{3}])
-         (diff1/diff [#{1 2} #{3 4}]
+         (diff2/diff [#{1 2} #{3 4}]
                      [#{1} #{3}])))
 
   (is (= {#{1} #{1 2}}
@@ -226,7 +229,7 @@
 
   (is (= {(->Deletion #{1 2}) :a
           (->Insertion #{1})  :a}
-         (diff1/diff {#{1 2} :a}
+         (diff2/diff {#{1 2} :a}
                      {#{1} :a})))
 
   (is (= #{(->Deletion "")
@@ -248,7 +251,7 @@
             [:x 1 :y :z]
             (->Deletion [:x :y])
             :c :d]
-           (diff1/diff a b)))
+           (diff2/diff a b)))
     (is (= [[:x (->Deletion 1) :y :z]
             [:x (->Insertion 1) :y (->Insertion :z)]
             :c
@@ -325,7 +328,7 @@
                              [1 (gen/return nil)]]))
 
 (defn insertion? [x]
-  (instance? lambdaisland.deep_diff.diff.Insertion x))
+  (= (type x) (type (->Insertion nil))))
 
 (def failure-parallel nil)
 (def end-2-end-generative-parallel-test nil)

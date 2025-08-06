@@ -15,4 +15,8 @@ pom.xml.asc
 .cpcache/
 .git/
 .idea/
+.calva/
+.lsp/
 *.iml
+.clj-kondo/
+.claude/settings.local.json

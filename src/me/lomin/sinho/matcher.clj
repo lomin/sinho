@@ -73,11 +73,6 @@
 (defmethod heuristic :atom [[left right]]
   (if (= left right) 0 1))
 
-(defn abs [number]
-  (if (pos? number)
-    number
-    (- number)))
-
 (defmethod heuristic :sequential [[left-xs right-xs]]
   (let [left-count (count left-xs)
         right-count (count right-xs)

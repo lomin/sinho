@@ -2,9 +2,9 @@
   (:require [com.rpl.specter :as s]
             [clojure.walk :as walk]
             [arrangement.core :refer [rank]]
-            [lambdaisland.deep-diff.diff :refer [->Mismatch
-                                                 ->Deletion
-                                                 ->Insertion]]))
+            [lambdaisland.deep-diff2.diff-impl :refer [->Mismatch
+                                                       ->Deletion
+                                                       ->Insertion]]))
 
 (def root-node [::node #_::node #_or #_::leaf
                 [#_[tag v :as path-segment]]
@@ -80,7 +80,10 @@
   ([index position & _]
    (case position
      :after s/AFTER-ELEM
-     :before (s/before-index index)
+     :before (s/if-path #(instance? clojure.lang.Cons %)
+                        ;; If it's a Cons, convert to list first, then apply before-index
+                        [(s/view #(apply list %)) (s/before-index index)]
+                        (s/before-index index))
      :nil (s/view (constantly ::nil)))))
 
 (def navs {:set   #(s/set-elem %)
