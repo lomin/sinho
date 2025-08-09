@@ -1,6 +1,7 @@
 {:deps {org.clojure/clojure {:mvn/version "1.12.1"}
         org.clojure/clojurescript {:mvn/version "1.11.132"}
         com.rpl/specter {:mvn/version "1.1.4"}
+        mvxcvi/arrangement {:mvn/version "2.1.0"}
         nubank/matcher-combinators {:mvn/version "3.9.1"}
         lambdaisland/kaocha {:mvn/version "1.91.1392"}}
  :paths ["src/clj" "src/cljc"]
