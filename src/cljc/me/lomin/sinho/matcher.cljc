@@ -20,7 +20,6 @@
                            :actual result#})
           result#))))
 
-
 ;; Conditional kaocha report support
 #?(:clj
    (defmethod kaocha.report/print-expr '=* [m]
@@ -94,15 +93,15 @@
   (list (cond-> node
           (not= left right) (add-diff left))))
 
-(defmacro stack-updates [path-0 values-0 & [_ pred path-1 values-1]]
-  `(if ~pred
-     [[::pop] ~values-1 [::push ~path-1]
-      [::pop] ~values-0 [::push ~path-0]]
-     [[::pop] ~values-0 [::push ~path-0]]))
+(defn stack-updates [path-0 values-0 & [_ pred path-1 values-1]]
+  (if pred
+    [[::pop] values-1 [::push path-1]
+     [::pop] values-0 [::push path-0]]
+    [[::pop] values-0 [::push path-0]]))
 
-(defn seq:stack-updates-default [left-index right-index left right]
-  (stack-updates [[:index left-index] [:index right-index]]
-                 [left right]))
+(defn seq:stack-updates-default
+  [left-index right-index left right]
+  (stack-updates [[:index left-index] [:index right-index]] [left right]))
 
 (defn seq:dis [xs] (with-meta (rest xs) (update (meta xs) ::count-seq rest)))
 
@@ -184,11 +183,12 @@
 
 (defn map:dis [m [k]] (vary-meta (dissoc m k) update ::count-seq rest))
 
-(defn map:stack-updates [[left-key left-value] [right-key right-value]]
+(defn map:stack-updates
+  [[left-key left-value] [right-key right-value]]
   (stack-updates [[:m-key left-key] [:m-key right-key]]
                  [left-key right-key]
-                 :when (and (not= ::diff/nil left-key)
-                            (not= ::diff/nil right-key))
+                 :when
+                 (and (not= ::diff/nil left-key) (not= ::diff/nil right-key))
                  [[:m-val left-key] [:m-val right-key]]
                  [left-value right-value]))
 
@@ -276,10 +276,10 @@
 (defn equal-star-search-config [left right]
   (let [left* (prepare left)
         right* (prepare right)]
-    (-> {:source     [left* right*]
-         :stack      (list [left* right*])
-         :diffs      ()
-         :left-path  []
+    (-> {:source [left* right*]
+         :stack (list [left* right*])
+         :diffs ()
+         :left-path []
          :right-path []}
         (map->EqualStarNode)
         (a-star/init {:search-xf (a-star/with-xform (map update-path))}))))

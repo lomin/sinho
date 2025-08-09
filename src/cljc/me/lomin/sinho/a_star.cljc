@@ -42,26 +42,33 @@
              (when (< back+forward-costs (get @seen a-star-identity MAX_VALUE))
                (vswap! seen assoc a-star-identity back+forward-costs)))))
 
-(defmacro with-xform [& body]
-  (let [body* (when (seq body) (list (cons 'do body)))]
-    `(comp
-      (back+forward-costs-xform)
-      (filter-new-or-better-nodes-xform)
-      ~@body*
-      (priority-xform)
-      (best-cost-xform))))
+(defn with-xform
+  ([]
+   (comp
+    (back+forward-costs-xform)
+    (filter-new-or-better-nodes-xform)
+    (priority-xform)
+    (best-cost-xform)))
+  ([xf]
+   (comp
+    (back+forward-costs-xform)
+    (filter-new-or-better-nodes-xform)
+    xf
+    (priority-xform)
+    (best-cost-xform))))
 
 (defn init
   ([root-node] (init root-node nil))
   ([root-node custom-config]
-   (merge {:root-node        (merge root-node
-                                    {:a-star:costs              0
-                                     :a-star:seen               (volatile!
-                                                                 {(a-star-identity root-node)
-                                                                  (calculate-back+forward-costs root-node)})
-                                     :a-star:back+forward-costs 0
-                                     :a-star:priority           [0 0]
-                                     :a-star:best-costs         (volatile! MAX_VALUE)})
+   (merge {:root-node (merge root-node
+                             {:a-star:costs 0
+                              :a-star:seen (volatile!
+                                            {(a-star-identity root-node)
+                                             (calculate-back+forward-costs
+                                              root-node)})
+                              :a-star:back+forward-costs 0
+                              :a-star:priority [0 0]
+                              :a-star:best-costs (volatile! MAX_VALUE)})
            :compare-priority search/smaller-is-better
-           :search-xf        (with-xform)}
+           :search-xf (with-xform)}
           custom-config)))

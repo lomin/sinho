@@ -23,9 +23,9 @@
 (defn comparable-vector [path]
   (s/select [s/ALL
              s/ALL
-             (s/filterer (fn [x] 
+             (s/filterer (fn [x]
                            #?(:clj (instance? java.lang.Comparable x)
-                              :cljs (or (number? x) (string? x)))))
+                              :cljs (or (number? x) (string? x) (set? x) (keyword? x)))))
              (s/view (fn [[tag opt-arg]]
                        [(tag-ranking tag) opt-arg]))
              s/ALL]
@@ -90,10 +90,11 @@
                         (s/before-index index))
      :nil (s/view (constantly ::nil)))))
 
-(def navs {:set   #(s/set-elem %)
-           :m-key #(s/map-key %)
-           :m-val #(s/keypath %)
-           :index seq-nav})
+(def navs
+  {:set #(s/set-elem %)
+   :m-key #(s/map-key %)
+   :m-val #(s/keypath %)
+   :index seq-nav})
 
 (defn path-segment->navigator [navigator-mapping [tag & args]]
   (if (= args '(::nil))
@@ -140,7 +141,7 @@
    differences, where the same subpaths are shared and only leafs of the tree differ."
   [paths [left-source right-source]]
   (as-> paths $
-        (sort compare-paths $)
-        (reduce grow-path-tree root-node $)
-        (path-tree->diff-transformer right-source $)
-        (s/multi-transform $ left-source)))
+    (sort compare-paths $)
+    (reduce grow-path-tree root-node $)
+    (path-tree->diff-transformer right-source $)
+    (s/multi-transform $ left-source)))
