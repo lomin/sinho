@@ -1,5 +1,4 @@
 {:deps {org.clojure/clojure {:mvn/version "1.12.1"}
-        me.lomin/chatda {:mvn/version "0.2.1"}
         com.rpl/specter {:mvn/version "1.1.4"}
         lambdaisland/kaocha {:mvn/version "1.91.1392"}}
  :paths ["src"]
@@ -19,10 +18,10 @@
           :jvm-opts ["-Djdk.attach.allowAttachSelf"]
           :main-opts ["-m" "nrepl.cmdline" "--middleware"
                       "[cider.nrepl/cider-middleware]" "--port" "7888"]}
-  :mcp {:deps {org.slf4j/slf4j-nop {:mvn/version "2.0.17"}
-               com.bhauman/clojure-mcp
-               {:git/url "https://github.com/bhauman/clojure-mcp.git"
-                :git/sha "ff751bf3d10521703931f499b46e6e8affe9f79e"}}
+  :mcp {:extra-deps {org.slf4j/slf4j-nop {:mvn/version "2.0.17"}
+                     com.bhauman/clojure-mcp
+                     {:git/url "https://github.com/bhauman/clojure-mcp.git"
+                      :git/sha "ff751bf3d10521703931f499b46e6e8affe9f79e"}}
         :exec-fn clojure-mcp.main/start-mcp-server
         :exec-args {:port 7888}}
   :release {:extra-deps {applied-science/deps-library {:mvn/version "0.4.0"}}

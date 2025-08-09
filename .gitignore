@@ -16,6 +16,7 @@ pom.xml.asc
 .git/
 .idea/
 .calva/
+.portal/
 .lsp/
 *.iml
 .clj-kondo/

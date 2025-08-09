@@ -1,6 +1,6 @@
 (ns me.lomin.sinho.matcher-test
   (:require [clojure.test :refer :all]
-            [me.lomin.chatda.search :as search]
+            [me.lomin.sinho.search :as search]
             [me.lomin.sinho.matcher :refer [=*] :as matcher]
             [com.rpl.specter :as s]
             [lambdaisland.deep-diff2.diff-impl :refer [->Mismatch ->Deletion ->Insertion left-undiff] :as diff2]
@@ -9,7 +9,7 @@
             [clojure.test.check.clojure-test :as test]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]
-            [me.lomin.chatda.a-star :as a-star]))
+            [me.lomin.sinho.a-star :as a-star]))
 
 (defn diff-paths [node]
   (:diffs node))
@@ -281,29 +281,29 @@
 (deftest prepare-test
   (is (= 22
          (matcher/atom-count
-           (matcher/prepare {1 [4
-                                5
-                                {{1 2 3 4} {5 6 7 8}}
-                                #{4 5 [6 7]}]}))))
+          (matcher/prepare {1 [4
+                               5
+                               {{1 2 3 4} {5 6 7 8}}
+                               #{4 5 [6 7]}]}))))
   (is (= '(1 1 11 6)
          (matcher/atom-count-seq
-           (matcher/prepare [4
-                             5
-                             {{1 2 3 4} {5 6 7 8}}
-                             #{4 5 [6 7]}]))))
+          (matcher/prepare [4
+                            5
+                            {{1 2 3 4} {5 6 7 8}}
+                            #{4 5 [6 7]}]))))
 
   (is (= (matcher/atom-count-seq
-           (matcher/prepare [[[[:a 1] [:b 2]] [[:c 2] [:d 4]]]]))
+          (matcher/prepare [[[[:a 1] [:b 2]] [[:c 2] [:d 4]]]]))
          (matcher/atom-count-seq
-           (matcher/prepare (seq {(seq {:a 1 :b 2}) (seq {:c 2 :d 4})}))))))
+          (matcher/prepare (seq {(seq {:a 1 :b 2}) (seq {:c 2 :d 4})}))))))
 
 (defn calculate-back+forward-costs [left right]
   (a-star/calculate-back+forward-costs
-    (:root-node (matcher/equal-star-search-config left right))))
+   (:root-node (matcher/equal-star-search-config left right))))
 
 (deftest heuristic-test
   (are [expected left right]
-    (= expected (calculate-back+forward-costs left right))
+       (= expected (calculate-back+forward-costs left right))
     0 1 1
     1 1 2
     1 #{} {}
@@ -340,16 +340,16 @@
                  parallelism (gen/fmap inc gen/nat)
                  left        (gen/recursive-gen containers scalars)
                  right       (gen/recursive-gen containers scalars)]
-    (let [d (=* left right {:chan-size   chan-size
-                            :parallelism parallelism
-                            :timeout     100})]
-      (or (= d :timeout)
-          (= d left)
-          (and (or (insertion? d) (= left (left-undiff d))))
-          (and (def failure-parallel [left right d {:chan-size   chan-size
-                                                    :parallelism parallelism
-                                                    :timeout     100}])
-               false)))))
+                (let [d (=* left right {:chan-size   chan-size
+                                        :parallelism parallelism
+                                        :timeout     100})]
+                  (or (= d :timeout)
+                      (= d left)
+                      (and (or (insertion? d) (= left (left-undiff d))))
+                      (and (def failure-parallel [left right d {:chan-size   chan-size
+                                                                :parallelism parallelism
+                                                                :timeout     100}])
+                           false)))))
 
 (def timeout-failure nil)
 (def timeout-test-test nil)
@@ -360,15 +360,15 @@
                  timeout     (gen/no-shrink (gen/choose 10 500))
                  left        (gen/no-shrink (gen/recursive-gen containers scalars))
                  right       (gen/no-shrink (gen/recursive-gen containers scalars))]
-    (let [start-time        (. System (currentTimeMillis))
-          d                 (=* left right {:chan-size   chan-size
-                                            :parallelism parallelism
-                                            :timeout     timeout})
-          end-time          (. System (currentTimeMillis))
-          duration          (- end-time start-time)
-          accepted-duration (* timeout 2)]
-      (or (< duration accepted-duration)
-          (and (def timeout-failure [duration accepted-duration
-                                     timeout parallelism chan-size
-                                     d])
-               false)))))
+                (let [start-time        (. System (currentTimeMillis))
+                      d                 (=* left right {:chan-size   chan-size
+                                                        :parallelism parallelism
+                                                        :timeout     timeout})
+                      end-time          (. System (currentTimeMillis))
+                      duration          (- end-time start-time)
+                      accepted-duration (* timeout 2)]
+                  (or (< duration accepted-duration)
+                      (and (def timeout-failure [duration accepted-duration
+                                                 timeout parallelism chan-size
+                                                 d])
+                           false)))))

@@ -3,8 +3,8 @@
    [clojure.test :as clojure-test]
    [com.rpl.specter :as s]
    [kaocha.report :as report]
-   [me.lomin.chatda.a-star :as a-star]
-   [me.lomin.chatda.search :as search]
+   [me.lomin.sinho.a-star :as a-star]
+   [me.lomin.sinho.search :as search]
    [me.lomin.sinho.diff :as diff]))
 
 (defmethod clojure-test/assert-expr '=*
@@ -244,24 +244,29 @@
 (defn prepare [x]
   (s/transform coll-walker+meta-nav do-prepare x))
 
-(a-star/def-a-star EqualStarNode [stack]
+(defrecord EqualStarNode [a-star:back+forward-costs a-star:best-costs
+                          a-star:costs a-star:priority a-star:seen stack]
   a-star/AStar
+  (get-costs [_] a-star:costs)
+  (get-best-costs [_] a-star:best-costs)
+  (get-back+forward-costs [_] a-star:back+forward-costs)
+  (seen [_] a-star:seen)
   (forward-costs [_] (transduce (map heuristic) + stack))
   (a-star-identity [_] stack)
   (goal? [_] (empty? stack))
   search/SearchableNode
   (children [this]
-            (when-let [comparison (peek stack)]
-              (children comparison (update this :stack pop))))
+    (when-let [comparison (peek stack)]
+      (children comparison (update this :stack pop))))
+  (priority [_] a-star:priority)
   (stop [{:keys [diffs] :as this} _]
-        (a-star/with-stop
-          this
-          (when (a-star/goal? this)
-            (cond-> this
-              (empty? diffs) (reduced)))))
-  (combine [this other] this)
-  search/ParallelSearchableNode
-  (reduce-combine [this other] (a-star/choose-better this other)))
+    (if (<= (deref a-star:best-costs) a-star:back+forward-costs)
+      this
+      (when-let [result (when (a-star/goal? this)
+                          (cond-> this (empty? diffs) (reduced)))]
+        (vswap! a-star:best-costs min a-star:back+forward-costs)
+        result)))
+  (combine [this _other] this))
 
 (defn equal-star-search-config [left right]
   (let [left* (prepare left)
