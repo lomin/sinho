@@ -1,6 +1,7 @@
 (ns me.lomin.sinho.diff-test
-  (:require [clojure.test :refer :all]
-            [me.lomin.sinho.diff :as diff]))
+  (:require
+   [clojure.test :as t :refer [deftest is]]
+   [me.lomin.sinho.diff :as diff]))
 
 (deftest sort-paths-test
   (is (= [[[[:m-val #{3}]] [[:m-val #{1 2}]]]

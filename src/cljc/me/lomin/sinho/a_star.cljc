@@ -1,6 +1,10 @@
 (ns me.lomin.sinho.a-star
   (:require [me.lomin.sinho.search :as search]))
 
+;; Platform-agnostic max value
+(def MAX_VALUE #?(:clj Integer/MAX_VALUE
+                  :cljs js/Number.MAX_SAFE_INTEGER))
+
 (defprotocol AStar
   (get-costs [self])
   (get-best-costs [self])
@@ -35,7 +39,7 @@
   (filter #(let [back+forward-costs (get-back+forward-costs %)
                  seen (seen %)
                  a-star-identity (a-star-identity %)]
-             (when (< back+forward-costs (get @seen a-star-identity Integer/MAX_VALUE))
+             (when (< back+forward-costs (get @seen a-star-identity MAX_VALUE))
                (vswap! seen assoc a-star-identity back+forward-costs)))))
 
 (defmacro with-xform [& body]
@@ -57,7 +61,7 @@
                                                                   (calculate-back+forward-costs root-node)})
                                      :a-star:back+forward-costs 0
                                      :a-star:priority           [0 0]
-                                     :a-star:best-costs         (volatile! Integer/MAX_VALUE)})
+                                     :a-star:best-costs         (volatile! MAX_VALUE)})
            :compare-priority search/smaller-is-better
            :search-xf        (with-xform)}
           custom-config)))

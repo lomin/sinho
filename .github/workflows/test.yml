@@ -1,0 +1,29 @@
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  test-clj:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: DeLaGuardo/setup-clojure@12.5
+        with:
+          cli: latest
+      - name: Run CLJ tests
+        run: clojure -A:test -m kaocha.runner
+
+  test-cljs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20'
+      - uses: DeLaGuardo/setup-clojure@12.5
+        with:
+          cli: latest
+      - name: Compile CLJS tests
+        run: clojure -M:cljs-test compile cli-test
+      - name: Run CLJS tests
+        run: node ./out/node-tests.js

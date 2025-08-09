@@ -1,25 +1,30 @@
 (ns me.lomin.sinho.matcher
   (:require
-   [clojure.test :as clojure-test]
+   #?(:clj [clojure.test :as test]
+      :cljs [cljs.test :as test])
    [com.rpl.specter :as s]
-   [kaocha.report :as report]
+   #?(:clj [kaocha.report :as report])
    [me.lomin.sinho.a-star :as a-star]
    [me.lomin.sinho.search :as search]
    [me.lomin.sinho.diff :as diff]))
 
-(defmethod clojure-test/assert-expr '=*
-  [msg form]
-  (let [[pred expected actual] form]
-    `(let [result# (~pred ~expected ~actual)]
-       (clojure-test/do-report {:type (if (= ~expected result#) :pass :fail)
-                                :message ~msg
-                                :expected '~form
-                                :actual result#})
-       result#)))
+;; Custom test assertion - CLJ only for now
+#?(:clj
+   (defmethod test/assert-expr '=*
+     [msg form]
+     (let [[pred expected actual] form]
+       `(let [result# (~pred ~expected ~actual)]
+          (test/do-report {:type (if (= ~expected result#) :pass :fail)
+                           :message ~msg
+                           :expected '~form
+                           :actual result#})
+          result#))))
 
 
-(defmethod kaocha.report/print-expr '=* [m]
-  (report/print-expression m))
+;; Conditional kaocha report support
+#?(:clj
+   (defmethod kaocha.report/print-expr '=* [m]
+     (report/print-expression m)))
 
 (def path-internals? #{::push ::pop})
 

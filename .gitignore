@@ -19,5 +19,11 @@ pom.xml.asc
 .portal/
 .lsp/
 *.iml
+.shadow-cljs/
+node_modules/
+package.json
+package-lock.json
+.cljs_node_repl
 .clj-kondo/
 .claude/settings.local.json
+.mcp.json

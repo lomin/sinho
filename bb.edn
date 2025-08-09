@@ -1,0 +1,26 @@
+{:min-bb-version "0.9.159"
+ :paths ["bb"]
+
+ :tasks
+ {:requires ([babashka.process :refer [shell]])
+
+  test:clj
+  {:doc "Run Clojure tests"
+   :task (apply clojure "-M:test -m kaocha.runner" *command-line-args*)}
+
+  test:node
+  {:doc "Run ClojureScript tests via node"
+   :task (do (apply clojure "-M:cljs-test compile cli-test" *command-line-args*)
+             (shell "node ./out/node-tests.js"))}
+
+  test:browser
+  {:doc "Run ClojureScript tests in browser at http://localhost:9158/"
+   :task (apply clojure "-M:cljs-test watch browser-test" *command-line-args*)}
+
+  test
+  {:doc "Run entire test suite"
+   :depends [test:node test:clj]}
+
+  testing
+  {:doc "Watch mode for CLJS development"
+   :task (apply clojure "-M:cljs-test watch cli-test" *command-line-args*)}}}

@@ -23,7 +23,9 @@
 (defn comparable-vector [path]
   (s/select [s/ALL
              s/ALL
-             (s/filterer (partial instance? java.lang.Comparable))
+             (s/filterer (fn [x] 
+                           #?(:clj (instance? java.lang.Comparable x)
+                              :cljs (or (number? x) (string? x)))))
              (s/view (fn [[tag opt-arg]]
                        [(tag-ranking tag) opt-arg]))
              s/ALL]
@@ -80,7 +82,9 @@
   ([index position & _]
    (case position
      :after s/AFTER-ELEM
-     :before (s/if-path #(instance? clojure.lang.Cons %)
+     :before (s/if-path (fn [x]
+                          #?(:clj (instance? clojure.lang.Cons x)
+                             :cljs (and (seq? x) (not (vector? x)))))
                         ;; If it's a Cons, convert to list first, then apply before-index
                         [(s/view #(apply list %)) (s/before-index index)]
                         (s/before-index index))

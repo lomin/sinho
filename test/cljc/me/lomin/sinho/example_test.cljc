@@ -1,6 +1,7 @@
 (ns me.lomin.sinho.example-test
-  (:require [clojure.test :refer :all]
-            [me.lomin.sinho.matcher :refer [=*]]))
+  (:require
+   [clojure.test :as t :refer [deftest is]]
+   [me.lomin.sinho.matcher :refer [=*]]))
 
 (defn query-twitter-for [user] ; fake implementation
   {:name           "Steven Collins"
