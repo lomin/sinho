@@ -37,7 +37,11 @@
              s/ALL
              (s/filterer (fn [x]
                            #?(:clj (instance? java.lang.Comparable x)
-                              :cljs (or (number? x) (string? x) (set? x) (keyword? x)))))
+                              :cljs (try
+                                      (compare x x)
+                                      true
+                                      (catch :default _
+                                        false)))))
              (s/view (fn [[tag opt-arg]]
                        [(tag-ranking tag) opt-arg]))
              s/ALL]
