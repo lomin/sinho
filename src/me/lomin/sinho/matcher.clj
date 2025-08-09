@@ -1,42 +1,25 @@
 (ns me.lomin.sinho.matcher
-  (:require [clojure.test :as clojure-test]
-            [kaocha.report]
-            [kaocha.output :as output]
-            [me.lomin.chatda.search :as search]
-            [me.lomin.chatda.a-star :as a-star]
-            [me.lomin.sinho.diff :as diff]
-            [com.rpl.specter :as s]))
+  (:require
+   [clojure.test :as clojure-test]
+   [com.rpl.specter :as s]
+   [kaocha.report :as report]
+   [me.lomin.chatda.a-star :as a-star]
+   [me.lomin.chatda.search :as search]
+   [me.lomin.sinho.diff :as diff]))
 
-(defmethod clojure-test/assert-expr '=* [msg form]
-  (let [[_ expected actual] form]
-    (let [args (rest form)
-          pred (first form)]
-      `(let [values# (list ~@args)
-             result# (~pred ~expected ~actual)]
-         (if (= ~expected result#)
-           (clojure-test/do-report {:type     :pass, :message ~msg,
-                                    :expected '~form,
-                                    :actual   (cons ~pred values#)})
-           (clojure-test/do-report {:type     :fail, :message ~msg,
-                                    :expected '~form,
-                                    :actual   (list '~'not
-                                                    (list '=* ~expected result#))}))
-         result#))))
+(defmethod clojure-test/assert-expr '=*
+  [msg form]
+  (let [[pred expected actual] form]
+    `(let [result# (~pred ~expected ~actual)]
+       (clojure-test/do-report {:type (if (= ~expected result#) :pass :fail)
+                                :message ~msg
+                                :expected '~form
+                                :actual result#})
+       result#)))
+
 
 (defmethod kaocha.report/print-expr '=* [m]
-  (let [printer (output/printer)]
-    (let [[_ expected & actuals] (-> m :actual second)]
-      (output/print-doc
-        [:span
-         "Expected:" :line
-         [:nest (output/format-doc expected printer)]
-         :break
-         "Actual:" :line
-         (into [:nest]
-               (interpose :break)
-               (for [actual actuals]
-                 (output/format-doc actual
-                                    printer)))]))))
+  (report/print-expression m))
 
 (def path-internals? #{::push ::pop})
 
@@ -104,12 +87,13 @@
 
 (defmethod children :atom [[left right] node]
   (list (cond-> node
-                (not= left right) (add-diff left))))
+          (not= left right) (add-diff left))))
 
 (defmacro stack-updates [path-0 values-0 & [_ pred path-1 values-1]]
-  `(if ~pred [[::pop] ~values-1 [::push ~path-1]
-              [::pop] ~values-0 [::push ~path-0]]
-             [[::pop] ~values-0 [::push ~path-0]]))
+  `(if ~pred
+     [[::pop] ~values-1 [::push ~path-1]
+      [::pop] ~values-0 [::push ~path-0]]
+     [[::pop] ~values-0 [::push ~path-0]]))
 
 (defn seq:stack-updates-default [left-index right-index left right]
   (stack-updates [[:index left-index] [:index right-index]]
@@ -162,12 +146,12 @@
     (if (and (= left ::diff/nil) (= right ::diff/nil))
       (list node)
       (cond-> (list)
-              (and (not= left ::diff/nil) (not= right ::diff/nil))
-              (conj (seq:child-default node left-indexed right-indexed))
-              (not= left ::diff/nil)
-              (conj (seq:child-delete-first-element node left-indexed right-indexed))
-              (not= right ::diff/nil)
-              (conj (seq:child-add-first-element node left-indexed right-indexed))))))
+        (and (not= left ::diff/nil) (not= right ::diff/nil))
+        (conj (seq:child-default node left-indexed right-indexed))
+        (not= left ::diff/nil)
+        (conj (seq:child-delete-first-element node left-indexed right-indexed))
+        (not= right ::diff/nil)
+        (conj (seq:child-add-first-element node left-indexed right-indexed))))))
 
 (defn set|map:ensure-same-length-as [xs compare-xs nil-value]
   (cond-> xs (< (count xs) (count compare-xs)) (conj nil-value)))
@@ -180,8 +164,8 @@
           left-1 (dis left l)]
       (for [r (-> right (set|map:ensure-same-length-as left nil-value))]
         (cond-> node
-                (seq left-1) (update :stack conj [left-1 (dis right r)])
-                :always (update :stack into (set|map:stack-updates l r)))))))
+          (seq left-1) (update :stack conj [left-1 (dis right r)])
+          :always (update :stack into (set|map:stack-updates l r)))))))
 
 (defn set:dis [s x] (vary-meta (disj s x) update ::count-seq rest))
 
@@ -235,12 +219,12 @@
 (defn add-count-meta [x]
   (let [xs (if (map? x) (mapcat seq x) (seq x))
         xf (cond-> meta-count-xf
-                   (map? x) (comp (partition-all 2)
-                                  (map (partial apply +))))]
+             (map? x) (comp (partition-all 2)
+                            (map (partial apply +))))]
     (as-> x $
-          (->> xs
-               (into [] xf)
-               (vary-meta $ assoc ::count-seq)))))
+      (->> xs
+           (into [] xf)
+           (vary-meta $ assoc ::count-seq)))))
 
 (defn do-prepare [x]
   (if (map-entry? x)
@@ -250,12 +234,12 @@
 
 (def coll-walker+meta-nav
   (s/recursive-path
-    [] p
-    (s/if-path coll?
-               (s/if-path map-entry?
-                          (s/stay-then-continue p)
-                          (s/continue-then-stay
-                            [s/ALL-WITH-META p])))))
+   [] p
+   (s/if-path coll?
+              (s/if-path map-entry?
+                         (s/stay-then-continue p)
+                         (s/continue-then-stay
+                          [s/ALL-WITH-META p])))))
 
 (defn prepare [x]
   (s/transform coll-walker+meta-nav do-prepare x))
@@ -267,14 +251,14 @@
   (goal? [_] (empty? stack))
   search/SearchableNode
   (children [this]
-    (when-let [comparison (peek stack)]
-      (children comparison (update this :stack pop))))
+            (when-let [comparison (peek stack)]
+              (children comparison (update this :stack pop))))
   (stop [{:keys [diffs] :as this} _]
-    (a-star/with-stop
-      this
-      (when (a-star/goal? this)
-        (cond-> this
-                (empty? diffs) (reduced)))))
+        (a-star/with-stop
+          this
+          (when (a-star/goal? this)
+            (cond-> this
+              (empty? diffs) (reduced)))))
   (combine [this other] this)
   search/ParallelSearchableNode
   (reduce-combine [this other] (a-star/choose-better this other)))
@@ -294,8 +278,8 @@
   ([a b] (=* a b nil))
   ([a b options]
    (as-> (equal-star-search-config a b) $
-         (search/search (merge $ options))
-         (if (seq (:stack $))
-           :timeout
-           (diff/diff (:diffs $) (:source $))))))
+     (search/search (merge $ options))
+     (if (seq (:stack $))
+       :timeout
+       (diff/diff (:diffs $) (:source $))))))
 
