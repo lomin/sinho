@@ -4,7 +4,19 @@
             [arrangement.core :refer [rank]]
             [lambdaisland.deep-diff2.diff-impl :refer [->Mismatch
                                                        ->Deletion
-                                                       ->Insertion]]))
+                                                       ->Insertion]])
+  #?(:cljs (:require [com.rpl.specter.navs :as snavs])))
+
+;; Extend Specter's InsertBeforeIndex protocol to support Subvec in CLJS
+#?(:cljs
+   (extend-protocol snavs/InsertBeforeIndex
+     cljs.core/Subvec
+     (insert-before-idx [subvec idx val]
+       ;; Implement same logic as PersistentVector but ensure we get proper vectors
+       (let [subvec-as-vec (vec subvec)
+             front (vec (take idx subvec-as-vec))
+             back (vec (drop idx subvec-as-vec))]
+         (into (conj front val) back)))))
 
 (def root-node [::node #_::node #_or #_::leaf
                 [#_[tag v :as path-segment]]
