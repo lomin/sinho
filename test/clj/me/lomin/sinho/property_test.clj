@@ -36,14 +36,21 @@
 (def timeout-test-test nil)
 (test/defspec timeout-test-test
   {:num-tests 100}
-  (prop/for-all [timeout     (gen/no-shrink (gen/choose 10 500))
-                 left        (gen/no-shrink (gen/recursive-gen containers scalars))
-                 right       (gen/no-shrink (gen/recursive-gen containers scalars))]
-                (let [start-time        (. System (currentTimeMillis))
-                      d                 (=* left right {:timeout     timeout})
-                      end-time          (. System (currentTimeMillis))
-                      duration          (- end-time start-time)
+  (prop/for-all [timeout (gen/no-shrink (gen/choose 10 500))
+                 left (gen/no-shrink (gen/recursive-gen containers scalars))
+                 right (gen/no-shrink (gen/recursive-gen containers scalars))]
+                (let [start-time (. System (currentTimeMillis))
+                      d (try (=* left right {:timeout timeout})
+                             (catch Exception e
+                               (println "Error in =* with inputs:" left right "timeout:" timeout)
+                               (throw e)))
+                      end-time (. System (currentTimeMillis))
+                      duration (- end-time start-time)
                       accepted-duration (* timeout 2)]
-                  (or (< duration accepted-duration)
-                      (and (def timeout-failure [duration accepted-duration timeout d])
-                           false)))))
+                  ;; Handle nil result case
+                  (if (nil? d)
+                    (do (def timeout-failure [duration accepted-duration timeout "NIL_RESULT"])
+                        false)
+                    (or (< duration accepted-duration)
+                        (and (def timeout-failure [duration accepted-duration timeout d])
+                             false))))))

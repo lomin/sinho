@@ -85,6 +85,60 @@
         (is (contains? debug-info :timeout.debug/effective-step-us))
         (is (contains? debug-info :timeout.debug/burn-max)))))
 
+  (testing "mathematical relationships between debug fields"
+    (let [timeout? (timeout/make-timeout 1000)]
+      ;; Generate some activity to get meaningful statistics
+      (dotimes [_ 100] (timeout?))
+      (let [debug-info (:timeout/debug (timeout? :timeout/debug))
+            start (:timeout.debug/start-us debug-info)
+            now (:timeout.debug/now-us debug-info)
+            deadline (:timeout.debug/deadline-us debug-info)
+            overshoot (:timeout.debug/overshoot-us debug-info)
+            mean-step (:timeout.debug/mean-step-us debug-info)
+            var-step (:timeout.debug/var-step-us debug-info)
+            p95-proxy (:timeout.debug/p95-proxy-us debug-info)
+            decayed-max (:timeout.debug/decayed-max-us debug-info)
+            effective-step (:timeout.debug/effective-step-us debug-info)
+            check-count (:timeout.debug/check-count debug-info)
+            sample-count (:timeout.debug/sample-count debug-info)
+            stride-min (:timeout.debug/stride-min debug-info)
+            stride-max (:timeout.debug/stride-max debug-info)]
+
+        ;; Time relationships
+        (is (< start now) "Now should be after start")
+        (is (< start deadline) "Deadline should be after start")
+
+        ;; Overshoot calculation: max(0, now - deadline)
+        (is (= overshoot (max 0 (- now deadline)))
+            "Overshoot should be max(0, now - deadline)")
+
+        ;; Statistical relationships
+        (is (>= var-step 0.0) "Variance should be non-negative")
+        (is (pos? mean-step) "Mean step should be positive")
+
+        ;; P95 proxy = mean + 1.64485 * sqrt(max(variance, 0))
+        (let [expected-p95 (+ mean-step (* 1.64485 (Math/sqrt (max var-step 0.0))))]
+          (is (< (Math/abs (- p95-proxy expected-p95)) 0.01)
+              (str "P95 proxy should match calculation: expected " expected-p95 ", got " p95-proxy)))
+
+        ;; Effective step = max(p95_proxy, decayed_max, 1.0)
+        (let [expected-effective (max p95-proxy decayed-max 1.0)]
+          (is (= effective-step expected-effective)
+              (str "Effective step should be max(p95, decayed_max, 1.0): expected "
+                   expected-effective ", got " effective-step)))
+
+        ;; Decayed max should be >= max(effective_step, 1.0) due to decay
+        (is (>= decayed-max 1.0) "Decayed max should be >= 1.0")
+
+        ;; Counter relationships
+        (is (>= check-count sample-count) "Check count should be >= sample count")
+        (is (pos? check-count) "Check count should be positive")
+
+        ;; Stride bounds
+        (is (<= stride-min stride-max) "Stride min should be <= stride max")
+        (is (pos? stride-min) "Stride min should be positive")
+        (is (<= stride-max 1048576) "Stride max should be <= KMAX (2^20)"))))
+
   (testing "debug counters increment"
     (let [timeout? (timeout/make-timeout 1000)]
       (dotimes [_ 5] (timeout?))

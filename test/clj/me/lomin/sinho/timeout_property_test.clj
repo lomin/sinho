@@ -8,14 +8,14 @@
 ;; ----- Property-Based Tests (CLJ only) -----
 
 (defspec property-timeout-eventually-fires
-  50 ; number of tests
+  200 ; Increased to statistically significant sample size
   (prop/for-all [timeout-ms (gen/choose 10 100)]
                 (let [timeout? (timeout/make-timeout timeout-ms)]
                   (Thread/sleep (+ timeout-ms 20)) ; Wait past deadline
                   (timeout?)))) ; Should return true
 
 (defspec property-no-false-positives
-  50
+  200 ; Increased to statistically significant sample size
   (prop/for-all [timeout-ms (gen/choose 100 1000)
                  calls (gen/choose 1 50)]
                 (let [timeout? (timeout/make-timeout timeout-ms)]
@@ -24,7 +24,7 @@
                   (not (timeout?))))) ; Should not timeout
 
 (defspec property-adaptive-efficiency
-  20
+  100 ; Increased to statistically significant sample size
   (prop/for-all [timeout-ms (gen/choose 200 1000)
                  num-calls (gen/choose 20 100)]
                 (let [timeout? (timeout/make-timeout timeout-ms)]
@@ -36,7 +36,7 @@
                     (< efficiency 0.5))))) ; Should sample less than 50% of the time
 
 (defspec property-debug-consistency
-  30
+  150 ; Increased to statistically significant sample size
   (prop/for-all [timeout-ms (gen/choose 50 500)]
                 (let [timeout? (timeout/make-timeout timeout-ms)
                       _ (timeout?) ; Make at least one call
