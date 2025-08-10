@@ -2,7 +2,7 @@
   (:require
    #?(:clj [clojure.test :as test]
       :cljs [cljs.test :as test])
-      [clojure.walk :as walk]
+   [clojure.walk :as walk]
    [com.rpl.specter :as s]
    [matcher-combinators.model :refer
     [->Missing ->Unexpected ->Mismatch]]
@@ -46,7 +46,6 @@
                                                          (:actual x))
                          :else x))
                  form))
-
 
 #?(:clj
    (defmethod kaocha.report/print-expr '=* [m]
@@ -318,5 +317,7 @@
      (search/search (merge $ options))
      (if (seq (:stack $))
        :timeout
-       (diff/diff (:diffs $) (:source $))))))
+       (let [diff-result (diff/diff (:diffs $) (:source $))
+             cost (:a-star:costs $)]
+         (with-meta diff-result {:sinho/cost cost}))))))
 
