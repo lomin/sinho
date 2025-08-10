@@ -53,8 +53,10 @@
   (let [eff (calc-effective state)
         budget (max (- remaining-us (:target-overshoot-us state))
                     (:target-overshoot-us state))
-        k (#?(:clj long :cljs int) (Math/floor (/ (double budget) (* SAFETY eff))))]
-    (-> k (max 1) (min KMAX))))
+        k (#?(:clj long :cljs int) (Math/floor (/ (double budget) (* SAFETY eff))))
+        ;; CRITICAL FIX: Cap stride at reasonable maximum to ensure timeout detection
+        max-reasonable-stride 200] ; Allow up to 200 calls between time checks
+    (-> k (max 1) (min max-reasonable-stride))))
 
 (defn- timeout?-impl [guard-atom]
   (let [state (swap! guard-atom update :steps-since #?(:clj unchecked-inc :cljs inc))
