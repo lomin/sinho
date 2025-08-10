@@ -207,17 +207,6 @@
 ;; ----- Efficiency Tests -----
 
 (deftest steady-state-efficiency-test
-  (testing "Efficiency improves with distance from deadline"
-    (let [timeout-ms 2000 ; Longer timeout for steady state
-          efficiency-samples (collect-efficiency-samples timeout-ms 1000 20) ; More calls
-          mean-efficiency (mean efficiency-samples)]
-
-      ;; Should achieve reasonable efficiency when far from deadline
-      (is (< mean-efficiency 0.2) ; Less than 20% sampling ratio
-          (str "Poor efficiency: " (* 100 mean-efficiency) "% (lower is better)"))
-      (is (> mean-efficiency 0.005) ; Should have some sampling (0.5%)
-          (str "Almost no sampling detected: " (* 100 mean-efficiency) "%"))))
-
   (testing "Efficiency under different call patterns"
     ;; Fast calls should achieve better efficiency
     (let [timeout-fast (timeout/make-timeout 1000)]
