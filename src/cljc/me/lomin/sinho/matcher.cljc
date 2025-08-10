@@ -2,13 +2,19 @@
   (:require
    #?(:clj [clojure.test :as test]
       :cljs [cljs.test :as test])
+      [clojure.walk :as walk]
    [com.rpl.specter :as s]
+   [matcher-combinators.model :refer
+    [->Missing ->Unexpected ->Mismatch]]
+   [lambdaisland.deep-diff2.diff-impl :as diff2]
    #?(:clj [kaocha.report :as report])
    [me.lomin.sinho.a-star :as a-star]
    [me.lomin.sinho.search :as search]
-   [me.lomin.sinho.diff :as diff]))
+   [me.lomin.sinho.diff :as diff])
+  #?(:cljs (:require-macros [me.lomin.sinho.matcher-test-macros])))
 
-;; Custom test assertion - CLJ only for now
+;; Custom test assertion for Clojure
+;; ClojureScript version is in matcher-test-macros.clj
 #?(:clj
    (defmethod test/assert-expr '=*
      [msg form]
@@ -21,9 +27,30 @@
           result#))))
 
 ;; Conditional kaocha report support
+
+(defn insertion? [x]
+  (= (type x) (type (->Unexpected nil))))
+
+(defn deletion? [x]
+  (= (type x) (type (->Missing nil))))
+
+(defn mismatch? [x]
+  (= (type x) (type (->Mismatch nil nil))))
+
+(defn to-diff2
+  [form]
+  (walk/postwalk (fn [x]
+                   (cond (insertion? x) (diff2/->Insertion (:actual x))
+                         (deletion? x) (diff2/->Deletion (:expected x))
+                         (mismatch? x) (diff2/->Mismatch (:expected x)
+                                                         (:actual x))
+                         :else x))
+                 form))
+
+
 #?(:clj
    (defmethod kaocha.report/print-expr '=* [m]
-     (report/print-expression m)))
+     (report/print-expression (to-diff2 m))))
 
 (def path-internals? #{::push ::pop})
 

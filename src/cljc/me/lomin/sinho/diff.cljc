@@ -2,9 +2,8 @@
   (:require [com.rpl.specter :as s]
             [clojure.walk :as walk]
             [arrangement.core :refer [rank]]
-            [lambdaisland.deep-diff2.diff-impl :refer [->Mismatch
-                                                       ->Deletion
-                                                       ->Insertion]])
+            [matcher-combinators.model :refer [->Missing ->Unexpected ->Mismatch]]
+            )
   #?(:cljs (:require [com.rpl.specter.navs :as snavs])))
 
 ;; Extend Specter's InsertBeforeIndex protocol to support Subvec in CLJS
@@ -133,8 +132,8 @@
                               right-source)]
     (s/terminal (fn [left]
                   (cond
-                    (none? left) (->Insertion right)
-                    (none? right) (->Deletion left)
+                    (none? left) (->Unexpected right)
+                    (none? right) (->Missing left)
                     :else (->Mismatch left right))))))
 
 (defn node-of? [t x] (and (seqable? x) (= (first x) t)))

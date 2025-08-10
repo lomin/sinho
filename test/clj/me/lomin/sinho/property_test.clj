@@ -1,7 +1,7 @@
 (ns me.lomin.sinho.property-test
   (:require [clojure.test :refer :all]
             [me.lomin.sinho.matcher :refer [=*] :as matcher]
-            [lambdaisland.deep-diff2.diff-impl :refer [->Insertion left-undiff] :as diff2]
+            [lambdaisland.deep-diff2.diff-impl :refer [left-undiff] :as diff2]
             [clojure.test.check.clojure-test :as test]
             [clojure.test.check.generators :as gen]
             [clojure.test.check.properties :as prop]))
@@ -15,22 +15,19 @@
 (def scalars (gen/frequency [[10 gen/simple-type-printable-equatable]
                              [1 (gen/return nil)]]))
 
-(defn insertion? [x]
-  (= (type x) (type (->Insertion nil))))
-
 (def property-failure nil)
+
 (def end-2-end-generative-test nil)
 (test/defspec end-2-end-generative-test
   {:num-tests 100
-   ;:seed 1599306615414
-   }
+   :seed 1754783943229}
   (prop/for-all [left (gen/recursive-gen containers scalars) right
                  (gen/recursive-gen containers scalars)]
                 (let [d (=* left right {:timeout 100})]
                   (or (= d :timeout)
                       (= d left)
-                      (insertion? d)
-                      (= left (left-undiff d))
+                      (matcher/insertion? d)
+                      (= left (left-undiff (matcher/to-diff2 d)))
                       (and (def property-failure
                              [left right d {:timeout 100}])
                            false)))))

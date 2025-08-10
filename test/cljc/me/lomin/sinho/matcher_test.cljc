@@ -1,12 +1,15 @@
 (ns me.lomin.sinho.matcher-test
   (:require [clojure.test :as t :refer [deftest is testing are]]
             [me.lomin.sinho.search :as search]
-            [me.lomin.sinho.matcher :refer [=*] :as matcher]
+            [me.lomin.sinho.matcher :as matcher]
             [com.rpl.specter :as s]
             [lambdaisland.deep-diff2.diff-impl :refer [->Mismatch ->Deletion ->Insertion] :as diff2]
             [arrangement.core :refer [rank]]
             [me.lomin.sinho.diff :as diff]
             [me.lomin.sinho.a-star :as a-star]))
+
+(defn =* [a b & options]
+  (matcher/to-diff2 (apply matcher/=* a b options)))
 
 (defn diff-paths [node]
   (:diffs node))
