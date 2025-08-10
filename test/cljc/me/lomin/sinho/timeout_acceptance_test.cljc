@@ -3,6 +3,18 @@
   (:require [clojure.test :refer [deftest is testing]]
             [me.lomin.sinho.timeout :as timeout]))
 
+;; Helper for cross-platform number formatting
+(defn- format-number
+  "Format a number with specified decimal places"
+  [fmt-str value]
+  #?(:clj (format fmt-str value)
+     :cljs (if (number? value)
+             (let [places (if-let [match (re-find #"\.(\d+)f" fmt-str)]
+                            (js/parseInt (second match))
+                            2)]
+               (.toFixed value places))
+             (str value))))
+
 ;; Helper functions
 (defn- collect-overhead-measurements
   "Measure overhead of timeout calls vs baseline"
@@ -41,7 +53,7 @@
                                (* 100.0 (/ (double overhead-ns) (double baseline-time)))
                                0.0)
             timeout? (timeout/make-timeout timeout-ms)
-            debug-info (try (timeout? :timeout/debug) (catch Exception _ nil))]
+            debug-info (try (timeout? :timeout/debug) (catch #?(:clj Exception :cljs js/Error) _ nil))]
 
         {:baseline-ns baseline-time
          :timeout-ns timeout-time
@@ -133,18 +145,18 @@
       (println (str "Overhead measurement:"))
       (println (str "  Calls: " call-count))
       (println (str "  Timeout: " timeout-ms "ms"))
-      (println (str "  Overhead: " (format "%.2f" overhead-percent) "%"))
+      (println (str "  Overhead: " (format-number "%.2f" overhead-percent) "%"))
       (when debug
         (println (str "  Sample ratio: "
-                      (format "%.3f"
-                              (/ (double (get-in debug [:timeout/debug :timeout.debug/sample-count] 0))
-                                 (double (get-in debug [:timeout/debug :timeout.debug/check-count] 1)))))))
+                      (format-number "%.3f"
+                                     (/ (double (get-in debug [:timeout/debug :timeout.debug/sample-count] 0))
+                                        (double (get-in debug [:timeout/debug :timeout.debug/check-count] 1)))))))
 
       ;; Primary acceptance criteria - ADJUSTED for current implementation limitations
       ;; NOTE: Current atom-based implementation has high overhead due to multiple swap! operations
       ;; This should be improved in future versions with single atomic updates
       (is (< overhead-percent 10000.0) ; Temporary: Allow high overhead due to implementation issue
-          (str "Overhead too high: " (format "%.2f" overhead-percent) "%"))
+          (str "Overhead too high: " (format-number "%.2f" overhead-percent) "%"))
 
       ;; Efficiency check - should have low sampling ratio when far from deadline
       (when debug
@@ -154,7 +166,7 @@
                              (/ (double sample-count) (double check-count))
                              0.0)]
           (is (< sample-ratio 1.0) ; Should sample less than 100% (very permissive due to implementation)
-              (str "Poor efficiency (high sampling ratio): " (format "%.3f" sample-ratio)))))))
+              (str "Poor efficiency (high sampling ratio): " (format-number "%.3f" sample-ratio)))))))
 
   (testing "Overhead characteristics under different workloads"
     ;; Test overhead with various call patterns
@@ -165,12 +177,12 @@
 
       ;; Log all results
       (doseq [{:keys [calls overhead]} results]
-        (println (str "Calls: " calls ", Overhead: " (format "%.2f" overhead) "%")))
+        (println (str "Calls: " calls ", Overhead: " (format-number "%.2f" overhead) "%")))
 
       ;; All should meet overhead requirements - ADJUSTED for implementation limitations  
       (doseq [{:keys [calls overhead]} results]
         (is (< overhead 10000.0) ; Temporary: Allow high overhead due to multiple swap! operations
-            (str "High overhead with " calls " calls: " (format "%.2f" overhead) "%"))))))
+            (str "High overhead with " calls " calls: " (format-number "%.2f" overhead) "%"))))))
 
 ;; ----- Acceptance Criterion 3: P99 Detection Lag Within Envelope -----
 

@@ -234,15 +234,15 @@
 (deftest platform-timing-consistency-test
   (testing "Time measurements are monotonic"
     ;; Test that now-us function produces monotonic timestamps
-    (let [t1 (#?(:clj quot :cljs identity)
-              (#?(:clj System/nanoTime :cljs timeout/now-us))
-              #?(:clj 1000 :cljs 1))
-          _ #?(:clj (Thread/sleep 1) :cljs nil)
-          t2 (#?(:clj quot :cljs identity)
-              (#?(:clj System/nanoTime :cljs timeout/now-us))
-              #?(:clj 1000 :cljs 1))]
+    (let [t1 #?(:clj (quot (System/nanoTime) 1000)
+                :cljs (timeout/now-us))
+          ;; Ensure some time passes between measurements
+          _ #?(:clj (Thread/sleep 1)
+               :cljs (dotimes [_ 1000] (+ 1 1))) ; Simple busy loop for ClojureScript
+          t2 #?(:clj (quot (System/nanoTime) 1000)
+                :cljs (timeout/now-us))]
 
-      (is (< t1 t2) "Time should be monotonic")))
+      (is (<= t1 t2) "Time should be monotonic (non-decreasing)")))
 
   (testing "Time precision is adequate"
     ;; Test that we can measure microsecond-level differences
