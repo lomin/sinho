@@ -28,14 +28,18 @@
 
 ;; Conditional kaocha report support
 
+(def unexpected-type (type (->Unexpected nil)))
+(def missing-type (type (->Missing nil)))
+(def mismatch-type (type (->Mismatch nil nil)))
+
 (defn insertion? [x]
-  (= (type x) (type (->Unexpected nil))))
+  (= (type x) unexpected-type))
 
 (defn deletion? [x]
-  (= (type x) (type (->Missing nil))))
+  (= (type x) missing-type))
 
 (defn mismatch? [x]
-  (= (type x) (type (->Mismatch nil nil))))
+  (= (type x) mismatch-type))
 
 (defn to-diff2
   [form]
