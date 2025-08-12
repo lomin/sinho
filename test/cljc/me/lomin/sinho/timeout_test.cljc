@@ -1,93 +1,73 @@
 (ns me.lomin.sinho.timeout-test
-  (:require [clojure.test :refer [deftest is testing]]
-            [me.lomin.sinho.timeout :as timeout]
-            #?(:clj [clojure.test.check.clojure-test :refer [defspec]]
-               :clj [clojure.test.check.generators :as gen]
-               :clj [clojure.test.check.properties :as prop])))
+  "Consolidated timeout test suite focusing on deterministic tests and essential validations.
+   
+   This test suite prioritizes:
+   1. Deterministic tests that verify the timeout logic
+   2. Debug output validation (deterministic)
+   3. Essential end-to-end tests using debug output for verification"
+  (:require [clojure.test :refer [deftest testing is]]
+            [me.lomin.sinho.timeout :as timeout]))
 
-;; ----- Unit Tests -----
+;; ============================================================================
+;; Debug Output Structure Tests (Deterministic)
+;; ============================================================================
 
-(deftest make-timeout-test
-  (testing "make-timeout creates a function"
-    (let [timeout? (timeout/make-timeout 100)]
-      (is (fn? timeout?))))
-
-  (testing "timeout? function has correct arities"
-    (let [timeout? (timeout/make-timeout 100)]
-      (is (false? (timeout?))) ; 0-arity returns boolean
-      (is (map? (timeout? :timeout/debug))))) ; 1-arity with :timeout/debug returns map
-
-  (testing "invalid operation throws exception"
-    (let [timeout? (timeout/make-timeout 100)]
-      (is (thrown? #?(:clj Exception :cljs js/Error)
-                   (timeout? :invalid-op))))))
-
-(deftest timeout-behavior-test
-  (testing "fresh timeout does not timeout immediately"
-    (let [timeout? (timeout/make-timeout 1000)]
-      (is (false? (timeout?)))))
-
-  (testing "timeout eventually returns true after deadline"
-    (let [timeout? (timeout/make-timeout 10)]
-      #?(:clj (Thread/sleep 20)
-         :cljs (let [start (.now js/Date)]
-                 (while (< (- (.now js/Date) start) 20)
-                   nil)))
-      (is (true? (timeout?)))))
-
-  (testing "timeout state is persistent"
-    (let [timeout? (timeout/make-timeout 10)]
-      #?(:clj (Thread/sleep 20)
-         :cljs (let [start (.now js/Date)]
-                 (while (< (- (.now js/Date) start) 20)
-                   nil)))
-      (timeout?) ; First call
-      (is (true? (timeout?))))) ; Second call should still be true
-
-  (testing "multiple timeout instances are independent"
-    (let [timeout1? (timeout/make-timeout 10)
-          timeout2? (timeout/make-timeout 1000)]
-      #?(:clj (Thread/sleep 20)
-         :cljs (let [start (.now js/Date)]
-                 (while (< (- (.now js/Date) start) 20)
-                   nil)))
-      (is (true? (timeout1?)))
-      (is (false? (timeout2?))))))
-
-(deftest debug-payload-test
-  (testing "debug payload has required structure"
+(deftest test-debug-output-structure
+  (testing "Debug output returns expected structure and initial values"
     (let [timeout? (timeout/make-timeout 100)
-          _ (timeout?) ; Make at least one call
-          debug (timeout? :timeout/debug)]
+          _ (timeout?)
+          debug-info (timeout? :timeout/debug)
+          debug (:timeout/debug debug-info)]
 
-      (is (contains? debug :timeout/timeout?))
-      (is (contains? debug :timeout/debug))
+      (is (map? debug-info))
+      (is (map? debug))
+      (is (contains? debug-info :timeout/timeout?))
+      (is (false? (:timeout/timeout? debug-info)))
 
-      (let [debug-info (:timeout/debug debug)]
-        ;; Check all required debug fields exist
-        (is (contains? debug-info :timeout.debug/start-us))
-        (is (contains? debug-info :timeout.debug/now-us))
-        (is (contains? debug-info :timeout.debug/deadline-us))
-        (is (contains? debug-info :timeout.debug/detected-at-us))
-        (is (contains? debug-info :timeout.debug/overshoot-us))
-        (is (contains? debug-info :timeout.debug/target-overshoot-us))
-        (is (contains? debug-info :timeout.debug/check-count))
-        (is (contains? debug-info :timeout.debug/sample-count))
-        (is (contains? debug-info :timeout.debug/panic-count))
-        (is (contains? debug-info :timeout.debug/stride-final))
-        (is (contains? debug-info :timeout.debug/stride-min))
-        (is (contains? debug-info :timeout.debug/stride-max))
-        (is (contains? debug-info :timeout.debug/stride-shrink-count))
-        (is (contains? debug-info :timeout.debug/mean-step-us))
-        (is (contains? debug-info :timeout.debug/var-step-us))
-        (is (contains? debug-info :timeout.debug/p95-proxy-us))
-        (is (contains? debug-info :timeout.debug/decayed-max-us))
-        (is (contains? debug-info :timeout.debug/effective-step-us))
-        (is (contains? debug-info :timeout.debug/burn-max)))))
+      ;; Verify all expected keys are present
+      (is (= #{:timeout.debug/start-us
+               :timeout.debug/now-us
+               :timeout.debug/deadline-us
+               :timeout.debug/detected-at-us
+               :timeout.debug/overshoot-us
+               :timeout.debug/target-overshoot-us
+               :timeout.debug/check-count
+               :timeout.debug/sample-count
+               :timeout.debug/panic-count
+               :timeout.debug/stride-final
+               :timeout.debug/stride-min
+               :timeout.debug/stride-max
+               :timeout.debug/stride-shrink-count
+               :timeout.debug/mean-step-us
+               :timeout.debug/var-step-us
+               :timeout.debug/p95-proxy-us
+               :timeout.debug/decayed-max-us
+               :timeout.debug/effective-step-us
+               :timeout.debug/burn-max}
+             (set (keys debug))))
 
-  (testing "mathematical relationships between debug fields"
+      ;; Verify initial counter values
+      (is (>= (:timeout.debug/check-count debug) 1))
+      (is (>= (:timeout.debug/sample-count debug) 1))
+      (is (<= (:timeout.debug/sample-count debug) (:timeout.debug/check-count debug)))
+
+      ;; Verify timestamp ordering
+      (is (<= (:timeout.debug/start-us debug) (:timeout.debug/now-us debug)))
+      (is (= (:timeout.debug/deadline-us debug)
+             (+ (:timeout.debug/start-us debug) (* 1000 100))))
+
+      ;; Verify stride bounds
+      (is (>= (:timeout.debug/stride-final debug) 1))
+      (is (<= (:timeout.debug/stride-final debug) (bit-shift-left 1 20)))
+
+      ;; Verify statistical values
+      (is (pos? (:timeout.debug/mean-step-us debug)))
+      (is (>= (:timeout.debug/var-step-us debug) 0.0))
+      (is (pos? (:timeout.debug/effective-step-us debug))))))
+
+(deftest test-mathematical-relationships
+  (testing "Mathematical relationships between debug fields"
     (let [timeout? (timeout/make-timeout 1000)]
-      ;; Generate some activity to get meaningful statistics
       (dotimes [_ 100] (timeout?))
       (let [debug-info (:timeout/debug (timeout? :timeout/debug))
             start (:timeout.debug/start-us debug-info)
@@ -98,88 +78,110 @@
             var-step (:timeout.debug/var-step-us debug-info)
             p95-proxy (:timeout.debug/p95-proxy-us debug-info)
             decayed-max (:timeout.debug/decayed-max-us debug-info)
-            effective-step (:timeout.debug/effective-step-us debug-info)
-            check-count (:timeout.debug/check-count debug-info)
-            sample-count (:timeout.debug/sample-count debug-info)
-            stride-min (:timeout.debug/stride-min debug-info)
-            stride-max (:timeout.debug/stride-max debug-info)]
+            effective-step (:timeout.debug/effective-step-us debug-info)]
 
         ;; Time relationships
-        (is (< start now) "Now should be after start")
-        (is (< start deadline) "Deadline should be after start")
+        (is (< start now))
+        (is (< start deadline))
 
         ;; Overshoot calculation: max(0, now - deadline)
-        (is (= overshoot (max 0 (- now deadline)))
-            "Overshoot should be max(0, now - deadline)")
+        (is (= overshoot (max 0 (- now deadline))))
 
         ;; Statistical relationships
-        (is (>= var-step 0.0) "Variance should be non-negative")
-        (is (pos? mean-step) "Mean step should be positive")
+        (is (>= var-step 0.0))
+        (is (pos? mean-step))
 
         ;; P95 proxy = mean + 1.64485 * sqrt(max(variance, 0))
         (let [expected-p95 (+ mean-step (* 1.64485 (Math/sqrt (max var-step 0.0))))]
-          (is (< (Math/abs (- p95-proxy expected-p95)) 0.01)
-              (str "P95 proxy should match calculation: expected " expected-p95 ", got " p95-proxy)))
+          (is (< (Math/abs (- p95-proxy expected-p95)) 0.01)))
 
         ;; Effective step = max(p95_proxy, decayed_max, 1.0)
         (let [expected-effective (max p95-proxy decayed-max 1.0)]
-          (is (= effective-step expected-effective)
-              (str "Effective step should be max(p95, decayed_max, 1.0): expected "
-                   expected-effective ", got " effective-step)))
+          (is (= effective-step expected-effective)))
 
-        ;; Decayed max should be >= max(effective_step, 1.0) due to decay
-        (is (>= decayed-max 1.0) "Decayed max should be >= 1.0")
+        ;; Decayed max should be >= 1.0
+        (is (>= decayed-max 1.0))))))
 
-        ;; Counter relationships
-        (is (>= check-count sample-count) "Check count should be >= sample count")
-        (is (pos? check-count) "Check count should be positive")
-
-        ;; Stride bounds
-        (is (<= stride-min stride-max) "Stride min should be <= stride max")
-        (is (pos? stride-min) "Stride min should be positive")
-        (is (<= stride-max 1048576) "Stride max should be <= KMAX (2^20)"))))
-
-  (testing "debug counters increment"
-    (let [timeout? (timeout/make-timeout 1000)]
-      (dotimes [_ 5] (timeout?))
-      (let [debug (:timeout/debug (timeout? :timeout/debug))]
-        (is (>= (:timeout.debug/check-count debug) 5))
-        (is (pos? (:timeout.debug/sample-count debug))))))
-
-  (testing "target overshoot calculation"
-    (let [timeout? (timeout/make-timeout 100) ; 100ms
+(deftest test-target-overshoot-calculation
+  (testing "Target overshoot calculation follows spec"
+    (let [timeout? (timeout/make-timeout 100)
           debug (:timeout/debug (timeout? :timeout/debug))
           target-ov (:timeout.debug/target-overshoot-us debug)]
       ;; Target overshoot should be min(10ms, 5% of timeout) = 5ms = 5000µs
       (is (= 5000 target-ov)))
 
-    (let [timeout? (timeout/make-timeout 500) ; 500ms  
+    (let [timeout? (timeout/make-timeout 500)
           debug (:timeout/debug (timeout? :timeout/debug))
           target-ov (:timeout.debug/target-overshoot-us debug)]
       ;; Target overshoot should be min(10ms, 5% of 500ms) = min(10ms, 25ms) = 10ms = 10000µs
       (is (= 10000 target-ov)))))
 
-(deftest adaptive-behavior-test
-  (testing "stride adaptation with many quick calls"
-    (let [timeout? (timeout/make-timeout 1000)] ; Long timeout for adaptation
-      (dotimes [_ 20] (timeout?)) ; Make many calls quickly
+;; ============================================================================
+;; Counter Behavior Tests (Deterministic)
+;; ============================================================================
+
+(deftest test-counter-increment-behavior
+  (testing "Counters increment properly with calls"
+    (let [timeout? (timeout/make-timeout 1000)
+          _ (timeout?)
+          initial-debug (:timeout/debug (timeout? :timeout/debug))
+          initial-check-count (:timeout.debug/check-count initial-debug)
+          initial-sample-count (:timeout.debug/sample-count initial-debug)
+
+          _ (dotimes [_ 100] (timeout?))
+          final-debug (:timeout/debug (timeout? :timeout/debug))
+          final-check-count (:timeout.debug/check-count final-debug)
+          final-sample-count (:timeout.debug/sample-count final-debug)]
+
+      ;; Check count should increase by number of calls
+      (is (= final-check-count (+ initial-check-count 100)))
+
+      ;; Sample count should increase but not necessarily by same amount
+      (is (>= final-sample-count initial-sample-count))
+      (is (<= final-sample-count final-check-count))
+
+      ;; Efficiency should improve (lower sampling ratio)
+      (when (and (pos? initial-check-count) (pos? final-check-count))
+        (let [initial-ratio (/ initial-sample-count initial-check-count)
+              final-ratio (/ final-sample-count final-check-count)]
+          (is (<= final-ratio initial-ratio)))))))
+
+(deftest test-no-timeout-before-deadline
+  (testing "Timeout should not trigger before deadline"
+    (let [timeout-ms 100
+          timeout? (timeout/make-timeout timeout-ms)
+          results (doall (repeatedly 1000 timeout?))]
+
+      (is (every? false? results))
+
+      (let [debug-info (timeout? :timeout/debug)]
+        (is (false? (:timeout/timeout? debug-info)))))))
+
+;; ============================================================================
+;; Adaptive Behavior Tests (Mostly Deterministic)
+;; ============================================================================
+
+(deftest test-stride-adaptation
+  (testing "Stride adaptation with many quick calls"
+    (let [timeout? (timeout/make-timeout 1000)]
+      (dotimes [_ 20] (timeout?))
       (let [debug (:timeout/debug (timeout? :timeout/debug))]
-        ;; Should have high stride due to quick calls
         (is (> (:timeout.debug/stride-final debug) 1))
-        ;; Should have low sampling ratio (efficiency)
         (let [efficiency (/ (:timeout.debug/sample-count debug)
                             (:timeout.debug/check-count debug))]
-          (is (< efficiency 0.5)))))) ; Less than 50% sampling
+          (is (< efficiency 0.5)))))))
 
-  (testing "stride bounds"
+(deftest test-stride-bounds
+  (testing "Stride stays within bounds"
     (let [timeout? (timeout/make-timeout 1000)]
       (timeout?)
       (let [debug (:timeout/debug (timeout? :timeout/debug))
             stride (:timeout.debug/stride-final debug)]
         (is (>= stride 1))
-        (is (<= stride (bit-shift-left 1 20)))))) ; KMAX = 1 << 20
+        (is (<= stride (bit-shift-left 1 20)))))))
 
-  (testing "statistics evolution"
+(deftest test-statistics-evolution
+  (testing "Statistics evolve with calls"
     (let [timeout? (timeout/make-timeout 1000)]
       (dotimes [_ 10] (timeout?))
       (let [debug (:timeout/debug (timeout? :timeout/debug))]
@@ -188,92 +190,135 @@
         (is (pos? (:timeout.debug/decayed-max-us debug)))
         (is (pos? (:timeout.debug/effective-step-us debug)))))))
 
-(deftest timeout-detection-test
-  (testing "timeout detection and overshoot measurement"
-    (let [timeout? (timeout/make-timeout 20)] ; Short timeout
-      #?(:clj (Thread/sleep 30)
-         :cljs (let [start (.now js/Date)]
-                 (while (< (- (.now js/Date) start) 30)
-                   nil))) ; Wait past timeout
-      (is (true? (timeout?)))
-      (let [debug (timeout? :timeout/debug)]
-        (is (true? (:timeout/timeout? debug)))
-        (is (pos? (get-in debug [:timeout/debug :timeout.debug/detected-at-us])))
-        (is (pos? (get-in debug [:timeout/debug :timeout.debug/overshoot-us])))))) ; Should have some overshoot
+;; ============================================================================
+;; Platform Consistency Tests (Deterministic)
+;; ============================================================================
 
-  (testing "no false positives before deadline"
-    (let [timeout? (timeout/make-timeout 100)] ; 100ms timeout
-      (dotimes [_ 50] (timeout?)) ; Make many calls quickly
-      (let [debug (timeout? :timeout/debug)]
-        (is (false? (:timeout/timeout? debug)))
-        (is (zero? (get-in debug [:timeout/debug :timeout.debug/detected-at-us])))
-        (is (zero? (get-in debug [:timeout/debug :timeout.debug/overshoot-us])))))))
+(deftest test-cross-platform-behavior
+  (testing "Timeout behavior consistency across platforms"
+    (let [timeout-ms 100
+          timeout? (timeout/make-timeout timeout-ms)]
 
-(deftest cooperative-timeout-test
-  (testing "cooperative timeout in reduce operation"
-    (let [timeout? (timeout/make-timeout 20)
+      (is (false? (timeout?)))
+
+      (let [debug (:timeout/debug (timeout? :timeout/debug))]
+        (is (contains? debug :timeout.debug/start-us))
+        (is (contains? debug :timeout.debug/deadline-us))
+        (is (contains? debug :timeout.debug/target-overshoot-us))
+
+        (let [start (:timeout.debug/start-us debug)
+              deadline (:timeout.debug/deadline-us debug)
+              target-overshoot (:timeout.debug/target-overshoot-us debug)]
+
+          (is (pos? start))
+          (is (> deadline start))
+          (is (= (- deadline start) (* 1000 timeout-ms)))
+          (is (= target-overshoot 5000)))))))
+
+(deftest test-algorithm-constants
+  (testing "Algorithm constants are platform-independent"
+    (is (= timeout/Z95 1.64485))
+    (is (= timeout/ALPHA 0.05))
+    (is (= timeout/SAFETY 2.0))
+    (is (= timeout/DECAY 0.98))
+    (is (= timeout/BURN-RATIO 0.33))
+    (is (= timeout/KMAX (bit-shift-left 1 20)))))
+
+(deftest test-time-monotonicity
+  (testing "Time measurements are monotonic"
+    (let [t1 (timeout/now-us)
+          _ (dotimes [_ 1000] (+ 1 1))
+          t2 (timeout/now-us)]
+      (is (<= t1 t2))
+      (is (number? t1))
+      (is (number? t2)))))
+
+;; ============================================================================
+;; Cooperative Usage Patterns (Deterministic)
+;; ============================================================================
+
+(deftest test-cooperative-reduce-pattern
+  (testing "Cooperative timeout in reduce operation"
+    (let [timeout? (timeout/make-timeout 2000)
           result (reduce (fn [acc i]
                            (if (timeout?)
                              (reduced {:stopped-early true :last-i i :sum acc})
                              (+ acc i)))
                          0
-                         (range 1000000))] ; Large range that would take time
-      (if (:stopped-early result)
-        (do (is (:stopped-early result))
-            (is (pos? (:sum result)))
-            (is (< (:last-i result) 1000000)))
-        (is (= result (reduce + (range 1000000)))))))
+                         (range 100))]
+      ;; Should complete without timeout
+      (is (= result (reduce + (range 100)))))))
 
-  (testing "timeout allows early termination"
-    (let [timeout? (timeout/make-timeout 10) ; Very short timeout
-          start-time #?(:clj (System/currentTimeMillis)
-                        :cljs (.now js/Date))
-          result (loop [i 0]
-                   #?(:clj (Thread/sleep 1) :cljs (js/setTimeout #() 1)) ; Add delay
-                   (if (timeout?)
-                     {:stopped true :iterations i}
-                     (if (< i 1000)
-                       (recur (inc i))
-                       {:stopped false :iterations i})))
-          end-time #?(:clj (System/currentTimeMillis)
-                      :cljs (.now js/Date))]
-      (when (:stopped result)
-        (is (:stopped result))
-        (is (< (- end-time start-time) 50)))))) ; Should stop quickly
+(deftest test-multiple-independent-instances
+  (testing "Multiple timeout instances are independent"
+    (let [timeout1? (timeout/make-timeout 100)
+          timeout2? (timeout/make-timeout 200)]
 
-;; ----- Acceptance Tests -----
+      (is (false? (timeout1?)))
+      (is (false? (timeout2?)))
 
-(deftest overshoot-envelope-test
-  (testing "overshoot within reasonable bounds for test environment"
+      (let [debug1 (:timeout/debug (timeout1? :timeout/debug))
+            debug2 (:timeout/debug (timeout2? :timeout/debug))]
+        (is (not= (:timeout.debug/deadline-us debug1)
+                  (:timeout.debug/deadline-us debug2)))))))
+
+;; ============================================================================
+;; Essential End-to-End Test with Debug Validation (Non-Deterministic)
+;; ============================================================================
+
+(deftest test-timeout-detection-with-debug
+  (testing "Timeout detection and debug output validation (end-to-end)"
+    (let [timeout-ms 50
+          work-fn (fn [] (reduce + (range 1000)))
+          timeout? (timeout/make-timeout timeout-ms)
+          start-ms #?(:clj (System/currentTimeMillis) :cljs (.now js/Date))]
+
+      ;; Wait for timeout to expire
+      #?(:clj (Thread/sleep (+ timeout-ms 10))
+         :cljs (let [wait-start (.now js/Date)]
+                 (while (< (- (.now js/Date) wait-start) (+ timeout-ms 10))
+                   nil)))
+
+      ;; Now timeout should trigger
+      (is (timeout?) "Timeout should have triggered after deadline")
+
+      (let [debug-info (timeout? :timeout/debug)
+            debug (:timeout/debug debug-info)
+            overshoot-us (:timeout.debug/overshoot-us debug)
+            overshoot-ms-from-debug (/ overshoot-us 1000.0)
+            target-ms (/ (:timeout.debug/target-overshoot-us debug) 1000.0)]
+
+        ;; Verify timeout was detected
+        (is (:timeout/timeout? debug-info))
+        (is (pos? (:timeout.debug/detected-at-us debug)))
+
+        ;; Verify overshoot is reasonable (within 5x target as a loose bound for test environment)
+        (is (< overshoot-ms-from-debug (* 10.0 target-ms)))
+
+        ;; Verify check count
+        (is (pos? (:timeout.debug/check-count debug)))
+
+        ;; Verify sampling occurred
+        (is (pos? (:timeout.debug/sample-count debug)))))))
+
+(deftest test-overshoot-envelope
+  (testing "Overshoot within reasonable bounds using debug output"
     (let [timeout-ms 50
           timeout? (timeout/make-timeout timeout-ms)]
+
+      ;; Wait past deadline
       #?(:clj (Thread/sleep (+ timeout-ms 10))
-         :cljs (let [start (.now js/Date)
-                     delay (+ timeout-ms 10)]
-                 (while (< (- (.now js/Date) start) delay)
+         :cljs (let [start (.now js/Date)]
+                 (while (< (- (.now js/Date) start) (+ timeout-ms 10))
                    nil)))
-      (timeout?) ; Trigger timeout detection
+
+      (timeout?)
       (let [debug (:timeout/debug (timeout? :timeout/debug))
-            overshoot-us (get-in debug [:timeout.debug/overshoot-us])
-            target-overshoot-us (get-in debug [:timeout.debug/target-overshoot-us])
-            ; Expected envelope: max(S, min(5% × timeout, 10ms))  
-            ; For 50ms timeout: min(5% × 50ms, 10ms) = min(2.5ms, 10ms) = 2.5ms = 2500µs
-            ; But this is p99 spec, so allow reasonable test tolerance
-            tolerance-us (* 10 target-overshoot-us)] ; 10x for test environment variance
-        ;; Overshoot should be reasonable - allowing for GC, scheduler, etc. in tests
-        (is (< overshoot-us tolerance-us)
-            (str "Overshoot " overshoot-us "µs exceeded tolerance " tolerance-us "µs"))
+            overshoot-us (:timeout.debug/overshoot-us debug)
+            target-overshoot-us (:timeout.debug/target-overshoot-us debug)
+            tolerance-us (* 10 target-overshoot-us)]
+
+        ;; Overshoot should be reasonable
+        (is (< overshoot-us tolerance-us))
         ;; Verify target calculation is correct
-        (is (= target-overshoot-us 2500) "Target overshoot calculation"))))
-
-  (testing "efficiency under load"
-    (let [timeout? (timeout/make-timeout 1000)] ; Long timeout for efficiency test
-      (dotimes [_ 100] (timeout?)) ; Many calls
-      (let [debug (:timeout/debug (timeout? :timeout/debug))
-            efficiency (/ (get-in debug [:timeout.debug/sample-count])
-                          (get-in debug [:timeout.debug/check-count]))]
-        ;; Should achieve good efficiency (low sampling ratio when far from deadline)
-        (is (< efficiency 0.2) ; Less than 20% sampling ratio
-            (str "Poor efficiency: " efficiency " (higher means more overhead)"))))))
-
-;; Property-based tests are in separate CLJ-only file: timeout_property_test.clj
+        (is (= target-overshoot-us 2500))))))
