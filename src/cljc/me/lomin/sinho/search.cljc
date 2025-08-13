@@ -1,7 +1,8 @@
 (ns me.lomin.sinho.search
   ^{:doc "chatda (kor. 찾다, to search) is a library to search for stuff in parallel"}
+  (:require [me.lomin.sinho.timeout :as timeout])
   #?(:clj
-     (:import (java.util.concurrent Executors TimeoutException TimeUnit ScheduledExecutorService)
+     (:import (java.util.concurrent TimeoutException)
               (clojure.lang IPersistentStack Counted IEditableCollection
                             ITransientCollection IMeta IObj)
               (java.util PriorityQueue Comparator)))
@@ -10,12 +11,16 @@
 
 #?(:clj (set! *warn-on-reflection* true))
 
-;; Timeout executor - CLJ only
-#?(:clj
-   (defonce timeout-executor
-     (delay (Executors/newSingleThreadScheduledExecutor))))
-
 (def IDENTITY-XFORM (map identity))
+
+#?(:cljs
+   (deftype TimeoutException [message]
+     Object
+     (toString [_] message)))
+
+;; Pre-create exception for performance
+(def timeout-exception #?(:clj (TimeoutException. "Timeout")
+                          :cljs (TimeoutException. "Timeout")))
 
 ;; # Protocols
 (defprotocol SearchableNode
@@ -115,9 +120,8 @@
       (let [children (children node)]
         (if-let [result# (stop node children)]
           result#
-          (let [heap' #?(:clj (try (into heap search-xf children)
-                                   (catch TimeoutException _))
-                         :cljs (into heap search-xf children))  
+          (let [heap' (try (into heap search-xf children)
+                           (catch TimeoutException _))
                 head-node+priority (peek heap')]
             (if head-node+priority
               (let [next-node (combine (first head-node+priority) node)
@@ -131,28 +135,13 @@
       @result
       result)))
 
-;; # Timeout implementation - CLJ only
-
-#?(:clj
-   (do
-     ;; Pre-create exception for performance
-     (def timeout-exception (new TimeoutException))
-
-     (defn init-timeout-config! [{timeout :timeout :as config}]
-       (let [timed-out? (volatile! false)
-             timeout-xf (map #(if @timed-out? (throw timeout-exception) %))]
-         (-> config
-             (assoc ::timeout-future
-                    (.schedule ^ScheduledExecutorService @timeout-executor
-                               ^Runnable #(do (vreset! timed-out? true))
-                               ^long timeout
-                               TimeUnit/MILLISECONDS))
-             (update :search-xf #(comp timeout-xf %))))))
-
-   :cljs
-   ;; CLJS: No-op timeout implementation
-   (defn init-timeout-config! [config]
-     config))
+(defn init-timeout-config! [{timeout :timeout :as config}]
+  (if timeout
+    (let [timeout? (timeout/make-timeout timeout)
+          timeout-xf (map #(if (timeout?) (throw timeout-exception) %))]
+      (-> config
+          (update :search-xf #(comp timeout-xf %))))
+    config))
 
 (def DEFAULT-CONFIG
   {:root-node nil
@@ -160,19 +149,11 @@
    :chan-size 1
    :search-xf IDENTITY-XFORM
    :compare-priority larger-is-better
-   :timeout nil
-   ;; internal
-   #?@(:clj [::timeout-future nil])})
+   :timeout nil})
 
 ;; # API
 (defn search [{timeout :timeout :as search-config}]
   (let [complete-config
         (cond-> (merge DEFAULT-CONFIG search-config)
           timeout init-timeout-config!)]
-    #?(:clj
-       (try
-         (search-sequential complete-config)
-         (finally
-           (some-> complete-config ::timeout-future future-cancel)))
-       :cljs
-       (search-sequential complete-config))))
+    (search-sequential complete-config)))
