@@ -139,8 +139,6 @@
 
 (def DEFAULT-CONFIG
   {:root-node nil
-   :parallelism 1
-   :chan-size 1
    :search-xf IDENTITY-XFORM
    :compare-priority larger-is-better
    :timeout nil})

@@ -20,136 +20,136 @@
                           (s/select-first (diff/path->navigators diff/navs right-path) right-source)])
                        (:diffs node)))))
 
-(defn search [search-config chan-size parallelism]
-  (search/search (merge search-config {:chan-size chan-size :parallelism parallelism})))
+(defn search [search-config]
+  (search/search (merge search-config {})))
 
 (deftest solve-test
 
   (is (= [] (-> (matcher/equal-star-search-config #{1}
                                                   #{1})
-                (search 2 2)
+                (search)
                 (solve))))
 
   (is (= []
          (-> (matcher/equal-star-search-config #{1}
                                                #{1 2})
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[2 ::diff/nil]]
          (-> (matcher/equal-star-search-config #{1 2}
                                                #{1})
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= []
          (-> (matcher/equal-star-search-config [1 2]
                                                [1 2])
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[[[:index 2 :before]] [[:index 2]]]
           [[[:index 1 :before]] [[:index 1]]]]
          (-> (matcher/equal-star-search-config [1]
                                                [1 2 3])
-             (search 2 2)
+             (search)
              (diff-paths))))
 
   (is (= (list [[[:index 0]] [[:index 0]]])
          (-> (matcher/equal-star-search-config [nil 1] [0 1])
-             (search 2 2)
+             (search)
              (diff-paths))))
 
   (is (= (list [[[:set 2]]
                 [[:set :me.lomin.sinho.diff/nil]]])
          (-> (matcher/equal-star-search-config #{1 2} #{1})
-             (search 2 2)
+             (search)
              (diff-paths))))
 
   (is (= '()
          (-> (matcher/equal-star-search-config #{1} #{1 2})
-             (search 2 2)
+             (search)
              (diff-paths))))
 
   (is (= '()
          (-> (matcher/equal-star-search-config [1 [2 3]]
                                                [1 [2 3]])
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[nil 3]]
          (-> (matcher/equal-star-search-config [1 2]
                                                [1 2 3])
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[3 ::diff/nil]]
          (-> (matcher/equal-star-search-config [1 2 3]
                                                [1 2])
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= []
          (-> (matcher/equal-star-search-config [1 #{2}]
                                                [1 #{2 3}])
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[5 4]]
          (-> (matcher/equal-star-search-config #{1 5 #{2}}
                                                #{1 4 #{2 3}})
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[3 ::diff/nil]
           [5 4]]
          (-> (matcher/equal-star-search-config #{1 5 #{2 3}}
                                                #{1 4 #{2}})
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= []
          (-> (matcher/equal-star-search-config #{1 #{2 {:a 1}}}
                                                #{1 4 #{2 3 {:a 1 :b 2}}})
-             (search 1 1)
+             (search)
              (solve))))
 
   (is (= [[{:a 1} 3]]
          (-> (matcher/equal-star-search-config #{1 #{2 {:a 1}}}
                                                #{1 4 #{2 3}})
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[1 2]]
          (-> (matcher/equal-star-search-config {{:a 1} 3}
                                                {{:a 2} 3})
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[:b ::diff/nil]]
          (-> (matcher/equal-star-search-config {:a {:b 1}}
                                                {:a {}})
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[:e ::diff/nil]]
          (-> (matcher/equal-star-search-config {:a {:b 2 :c {:d 4 :e 5}}}
                                                {:a {:b 2 :c {:d 4}}})
-             (search 2 2)
+             (search)
              (solve))))
 
   (is (= [[1 5]
           [4 6]]
          (-> (matcher/equal-star-search-config {#{1} #{2 3 4}}
                                                {#{5} #{2 3 6}})
-             (search 10 4)
+             (search)
              (solve))))
 
   (is (= [[1 0]
           [3 4]]
          (-> (matcher/equal-star-search-config {#{1 #{2 3} 4} 5}
                                                {#{0 #{2 4} 4} 5})
-             (search 10 4)
+             (search)
              (solve)))))
 
 (deftest path-to-diff
@@ -235,15 +235,12 @@
   (is (= #{(->Deletion "")
            (->Deletion 0)}
          (=* #{"" 0} #{})
-         (=* #{"" 0} #{} {:chan-size 1
-                          :parallelism 1
-                          :timeout 1000})))
+         (=* #{"" 0} #{} {:timeout 1000})))
 
   (is (= {0 (->Mismatch 0 1)}
          (=* {0 0}
              {0 1, -1 1}
-             {:chan-size 1
-              :parallelism 1})))
+             {})))
 
   (let [a [[:x 1 :y :z] [:x :y] :c :d]
         b [[:x :y :z] [:x 1 :y :z] :c :d]]
