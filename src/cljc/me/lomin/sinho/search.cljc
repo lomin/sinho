@@ -129,12 +129,6 @@
                 (recur next-node next-heap))
               node)))))))
 
-(defn search-sequential [{:keys [root-node] :as config}]
-  (let [result (do-search root-node config)]
-    (if (reduced? result)
-      @result
-      result)))
-
 (defn init-timeout-config! [{timeout :timeout :as config}]
   (if timeout
     (let [timeout? (timeout/make-timeout timeout)
@@ -152,8 +146,10 @@
    :timeout nil})
 
 ;; # API
-(defn search [{timeout :timeout :as search-config}]
-  (let [complete-config
-        (cond-> (merge DEFAULT-CONFIG search-config)
-          timeout init-timeout-config!)]
-    (search-sequential complete-config)))
+(defn search
+  [{timeout :timeout :as search-config}]
+  (let [{:keys [root-node] :as complete-config} (cond-> (merge DEFAULT-CONFIG
+                                                               search-config)
+                                                  timeout init-timeout-config!)
+        result (do-search root-node complete-config)]
+    (if (reduced? result) @result result)))
