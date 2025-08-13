@@ -115,7 +115,7 @@
 (def ^:const ^long KMAX (bit-shift-left 1 20)) ; Maximum stride value (1M steps)
 (def ^:const ^double SAMPLE-MAX-SPACING-MS 10.0) ; Time-based ceiling: max 10ms between samples
 (def ^:const ^double TARGET-OVERSHOOT-FRACTION 0.05) ; Target overshoot: 5% of timeout
-(def ^:const ^double TARGET-OVERSHOOT-CAP-MS 10.0) ; Maximum target overshoot: 10ms ; 10ms
+(def ^:const ^double TARGET-OVERSHOOT-CAP-MS 10.0) ; Maximum target overshoot: 10ms
 
 ;; ---------- Guard Protocol ----------
 
@@ -425,16 +425,33 @@
                                            (* TARGET-OVERSHOOT-FRACTION timeout-ms))))
                      :cljs (js/Math.floor (* 1000 (min TARGET-OVERSHOOT-CAP-MS
                                                        (* TARGET-OVERSHOOT-FRACTION timeout-ms)))))
-        stride-min-init #?(:clj Long/MAX_VALUE :cljs js/Number.MAX_SAFE_INTEGER)
+        ;; Initial values for mutable fields
+        initial-last-sample-us start ; Start tracking from current time
+        initial-steps-since 0 ; No steps taken yet
+        initial-stride-k 1 ; Start with stride=1 to force first sample
+        initial-mean-us 10.0 ; Conservative initial estimate: 10µs per step
+        initial-var-us 10.0 ; Initial variance matches mean (high uncertainty)
+        initial-decayed-max-us 10.0 ; Initial max matches mean estimate
+        initial-timed-out false ; Not timed out initially
+        initial-detected-at-us 0 ; 0 means not yet detected
+        initial-check-count 0 ; No checks performed yet
+        initial-sample-count 0 ; No samples taken yet
+        initial-panic-count 0 ; No panic events yet
+        initial-stride-min #?(:clj Long/MAX_VALUE :cljs js/Number.MAX_SAFE_INTEGER) ; Track minimum stride seen
+        initial-stride-max 1 ; Track maximum stride seen
+        initial-stride-shrink-count 0 ; Count stride decreases
+        initial-burn-max 0.0 ; Track maximum burn ratio
+
         g (Guard. deadline target-ov
                   start
-                  start 0 1
-                  10.0 10.0 10.0
-                  false 0
-                  0 0 0
-                  stride-min-init 1 0 0.0)]
+                  initial-last-sample-us initial-steps-since initial-stride-k
+                  initial-mean-us initial-var-us initial-decayed-max-us
+                  initial-timed-out initial-detected-at-us
+                  initial-check-count initial-sample-count initial-panic-count
+                  initial-stride-min initial-stride-max initial-stride-shrink-count
+                  initial-burn-max)]
     (fn
-      ([] (timeout?-impl g)) ; hot path: boolean (true => stop now)
+      ([] (timeout?-impl g))
       ([op]
        (case op
          :timeout/debug (debug-map g)
