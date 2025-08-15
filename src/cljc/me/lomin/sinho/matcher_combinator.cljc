@@ -1,5 +1,6 @@
 (ns me.lomin.sinho.matcher-combinator
   (:require
+   [matcher-combinators.test]
    [matcher-combinators.core :as mc]
    [matcher-combinators.result :as result]
    [matcher-combinators.model :as model]
@@ -36,16 +37,16 @@
      ::result/value sinho-result ; Already contains diff structure
      ::result/weight (calculate-weight sinho-result)}))
 
-(defrecord EqualStar [expected]
+(defrecord EqualStar [expected options]
   mc/Matcher
   (-matcher-for [this] this)
   (-matcher-for [this _] this)
   (-match [_this actual]
-    (let [sinho-result (sinho/=* expected actual)]
+    (let [sinho-result (sinho/=* expected actual options)]
       (sinho->result expected sinho-result)))
   (-base-name [_] 'sinho-equals))
 
 (defn =*
   "Creates a strict equality matcher using sinho's =* function."
-  [expected]
-  (->EqualStar expected))
+  ([expected] (=* expected nil))
+  ([expected options] (->EqualStar expected options)))

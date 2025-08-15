@@ -18,8 +18,8 @@
 #?(:clj
    (defmethod test/assert-expr '=*
      [msg form]
-     (let [[pred expected actual] form]
-       `(let [result# (~pred ~expected ~actual)]
+     (let [[_ expected] form]
+       `(let [result# ~form]
           (test/do-report {:type (if (= ~expected result#) :pass :fail)
                            :message ~msg
                            :expected '~form
@@ -53,7 +53,9 @@
 
 #?(:clj
    (defmethod kaocha.report/print-expr '=* [m]
-     (report/print-expression (to-diff2 m))))
+     (if (= (:actual m) :timeout)
+       (report/print-expression (update m :actual list))
+       (report/print-expression (update m :actual to-diff2)))))
 
 (def path-internals? #{::push ::pop})
 
