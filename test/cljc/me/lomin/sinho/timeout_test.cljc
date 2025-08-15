@@ -5,8 +5,10 @@
    1. Deterministic tests that verify the timeout logic
    2. Debug output validation (deterministic)
    3. Essential end-to-end tests using debug output for verification"
-  (:require [clojure.test :refer [deftest testing is]]
-            [me.lomin.sinho.timeout :as timeout]))
+  (:require
+   [clojure.test :refer [deftest is testing]]
+   [me.lomin.sinho.matcher :refer [=*]]
+   [me.lomin.sinho.timeout :as timeout]))
 
 ;; ============================================================================
 ;; Debug Output Structure Tests (Deterministic)
@@ -322,3 +324,43 @@
         (is (< overshoot-us tolerance-us))
         ;; Verify target calculation is correct
         (is (= target-overshoot-us 2500))))))
+
+
+#(deftest timeout-test
+  (let [expected
+        (vec (for [i (range 15)]
+               (vec (for [j (range 15)]
+                      (vec (for [k (range 15)]
+                             {:i i
+                              :j j
+                              :k k
+                              :sets #{(+ i 1000) (+ j 2000) (+ k 3000)
+                                      (+ i j 4000) (+ j k 5000) (+ i k 6000)}
+                              :maps {(+ i 7000) (+ j 8000)
+                                     (+ j 9000) (+ k 10000)
+                                     (+ k 11000) (+ i 12000)}
+                              :vecs [(+ i 13000) (+ j 14000) (+ k 15000)
+                                     (+ (* i j) 16000) (+ (* j k) 17000)
+                                     (+ (* i k) 18000)]}))))))
+        actual
+        (vec
+         (for [i (range 15)]
+           (vec (for [j (range 15)]
+                  (vec (for [k (range 15)]
+                         {:i i
+                          :j j
+                          :k k
+                          :sets (if (and (= i 7) (= j 7) (= k 7))
+                                  #{7007 14014 21021 28028 35035 42042} ; Different
+                                                                           ; at
+                                                                           ; one
+                                                                           ; point
+                                  #{(+ i 1000) (+ j 2000) (+ k 3000)
+                                    (+ i j 4000) (+ j k 5000) (+ i k 6000)})
+                          :maps {(+ i 7000) (+ j 8000)
+                                 (+ j 9000) (+ k 10000)
+                                 (+ k 11000) (+ i 12000)}
+                          :vecs [(+ i 13000) (+ j 14000) (+ k 15000)
+                                 (+ (* i j) 16000) (+ (* j k) 17000)
+                                 (+ (* i k) 18000)]}))))))]
+    (is (=* expected actual {:timeout 100}))))
