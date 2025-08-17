@@ -325,8 +325,7 @@
         ;; Verify target calculation is correct
         (is (= target-overshoot-us 2500))))))
 
-
-#(deftest timeout-test
+(defn setup-expensive-search []
   (let [expected
         (vec (for [i (range 15)]
                (vec (for [j (range 15)]
@@ -363,4 +362,15 @@
                           :vecs [(+ i 13000) (+ j 14000) (+ k 15000)
                                  (+ (* i j) 16000) (+ (* j k) 17000)
                                  (+ (* i k) 18000)]}))))))]
-    (is (=* expected actual {:timeout 100}))))
+    [expected actual]))
+
+#_(deftest timeout-test
+  (let [[expected actual] (run-into-timeout)]
+    (is (=* expected actual))))
+
+(comment
+  (require '[clj-reload.core :as r])
+  (let [[expected actual] (setup-expensive-search)]
+    (time (=* expected actual {:timeout nil}))
+    (time (=* expected actual))
+    :finished))

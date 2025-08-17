@@ -141,13 +141,13 @@
   {:root-node nil
    :search-xf IDENTITY-XFORM
    :compare-priority larger-is-better
-   :timeout nil})
+   :timeout 1000 ; 1 second default timeout
+   })
 
 ;; # API
 (defn search
-  [{timeout :timeout :as search-config}]
-  (let [{:keys [root-node] :as complete-config} (cond-> (merge DEFAULT-CONFIG
-                                                               search-config)
-                                                  timeout init-timeout-config!)
+  [search-config]
+  (let [{:keys [root-node] :as complete-config}
+        (init-timeout-config! (merge DEFAULT-CONFIG search-config))
         result (do-search root-node complete-config)]
     (if (reduced? result) @result result)))
