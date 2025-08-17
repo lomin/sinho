@@ -29,7 +29,7 @@
                             [:license
                              [:name "Apache License, Version 2.0"]
                              [:url "http://www.apache.org/licenses/LICENSE-2.0"]]]]})
-  (b/copy-dir {:src-dirs ["src" "resources"]
+  (b/copy-dir {:src-dirs ["src/clj" "src/cljc" "resources"]
                :target-dir class-dir})
   (b/jar {:class-dir class-dir
           :jar-file jar-file}))
@@ -41,17 +41,6 @@
               :version version
               :jar-file jar-file
               :class-dir class-dir}))
-
-(defn uber [_]
-  (clean nil)
-  (b/copy-dir {:src-dirs ["src" "resources"]
-               :target-dir class-dir})
-  (b/compile-clj {:basis basis
-                  :src-dirs ["src"]
-                  :class-dir class-dir})
-  (b/uber {:class-dir class-dir
-           :uber-file uber-file
-           :basis basis}))
 
 (defn deploy [opts]
   (jar opts)
