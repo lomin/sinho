@@ -38,4 +38,4 @@
                                                 :git/sha "deedd62"}
                  slipset/deps-deploy {:mvn/version "0.2.2"}}
           :ns-default build}
-  :neil {:project {:version "2.0.0"}}}}
+  :neil {:project {:version "2.1.0"}}}}
