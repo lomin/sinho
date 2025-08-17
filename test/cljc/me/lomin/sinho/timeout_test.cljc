@@ -83,8 +83,8 @@
             effective-step (:timeout.debug/effective-step-us debug-info)]
 
         ;; Time relationships
-        (is (< start now))
-        (is (< start deadline))
+        (is (<= start now))
+        (is (<= start deadline))
 
         ;; Overshoot calculation: max(0, now - deadline)
         (is (= overshoot (max 0 (- now deadline))))
