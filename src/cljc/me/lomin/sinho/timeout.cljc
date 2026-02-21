@@ -170,70 +170,114 @@
 
 ;; ---------- Guard Implementation ----------
 
-(deftype Guard
-         [^long deadline-us
-          ^long target-overshoot-us
-          ^long start-us
+#?(:bb
+   (defrecord BBGuard [deadline-us target-overshoot-us start-us state]
+     IGuard
+     ;; Immutable field getters
+     (get-deadline-us [_] deadline-us)
+     (get-target-overshoot-us [_] target-overshoot-us)
+     (get-start-us [_] start-us)
 
-          ^:unsynchronized-mutable ^long last-sample-us
-          ^:unsynchronized-mutable ^long steps-since
-          ^:unsynchronized-mutable ^long stride-k
+     ;; Mutable field getters — deref volatile state map
+     (get-last-sample-us [_] (:last-sample-us @state))
+     (get-steps-since [_] (:steps-since @state))
+     (get-stride-k [_] (:stride-k @state))
+     (get-mean-us [_] (:mean-us @state))
+     (get-var-us [_] (:var-us @state))
+     (get-decayed-max-us [_] (:decayed-max-us @state))
+     (get-timed-out [_] (:timed-out @state))
+     (get-detected-at-us [_] (:detected-at-us @state))
+     (get-check-count [_] (:check-count @state))
+     (get-sample-count [_] (:sample-count @state))
+     (get-panic-count [_] (:panic-count @state))
+     (get-stride-min [_] (:stride-min @state))
+     (get-stride-max [_] (:stride-max @state))
+     (get-stride-shrink-count [_] (:stride-shrink-count @state))
+     (get-burn-max [_] (:burn-max @state))
 
-          ^:unsynchronized-mutable ^double mean-us
-          ^:unsynchronized-mutable ^double var-us
-          ^:unsynchronized-mutable ^double decayed-max-us
+     ;; Mutable field setters — vswap! on volatile state map
+     ;; Each setter returns the coerced value (matching deftype set! semantics)
+     (set-last-sample-us! [_ val] (let [v (long val)] (vswap! state assoc :last-sample-us v) v))
+     (set-steps-since! [_ val] (let [v (long val)] (vswap! state assoc :steps-since v) v))
+     (set-stride-k! [_ val] (let [v (long val)] (vswap! state assoc :stride-k v) v))
+     (set-mean-us! [_ val] (let [v (double val)] (vswap! state assoc :mean-us v) v))
+     (set-var-us! [_ val] (let [v (double val)] (vswap! state assoc :var-us v) v))
+     (set-decayed-max-us! [_ val] (let [v (double val)] (vswap! state assoc :decayed-max-us v) v))
+     (set-timed-out! [_ val] (let [v (boolean val)] (vswap! state assoc :timed-out v) v))
+     (set-detected-at-us! [_ val] (let [v (long val)] (vswap! state assoc :detected-at-us v) v))
+     (set-check-count! [_ val] (let [v (long val)] (vswap! state assoc :check-count v) v))
+     (set-sample-count! [_ val] (let [v (long val)] (vswap! state assoc :sample-count v) v))
+     (set-panic-count! [_ val] (let [v (long val)] (vswap! state assoc :panic-count v) v))
+     (set-stride-min! [_ val] (let [v (long val)] (vswap! state assoc :stride-min v) v))
+     (set-stride-max! [_ val] (let [v (long val)] (vswap! state assoc :stride-max v) v))
+     (set-stride-shrink-count! [_ val] (let [v (long val)] (vswap! state assoc :stride-shrink-count v) v))
+     (set-burn-max! [_ val] (let [v (double val)] (vswap! state assoc :burn-max v) v)))
 
-          ^:unsynchronized-mutable ^boolean timed-out
-          ^:unsynchronized-mutable ^long detected-at-us
+   :default
+   (deftype Guard
+            [^long deadline-us
+             ^long target-overshoot-us
+             ^long start-us
 
-          ;; Debug counters/gauges
-          ^:unsynchronized-mutable ^long check-count
-          ^:unsynchronized-mutable ^long sample-count
-          ^:unsynchronized-mutable ^long panic-count
-          ^:unsynchronized-mutable ^long stride-min
-          ^:unsynchronized-mutable ^long stride-max
-          ^:unsynchronized-mutable ^long stride-shrink-count
-          ^:unsynchronized-mutable ^double burn-max]
+             ^:unsynchronized-mutable ^long last-sample-us
+             ^:unsynchronized-mutable ^long steps-since
+             ^:unsynchronized-mutable ^long stride-k
 
-  IGuard
-  ;; Immutable field getters
-  (get-deadline-us [_] deadline-us)
-  (get-target-overshoot-us [_] target-overshoot-us)
-  (get-start-us [_] start-us)
+             ^:unsynchronized-mutable ^double mean-us
+             ^:unsynchronized-mutable ^double var-us
+             ^:unsynchronized-mutable ^double decayed-max-us
 
-  ;; Mutable field getters
-  (get-last-sample-us [_] last-sample-us)
-  (get-steps-since [_] steps-since)
-  (get-stride-k [_] stride-k)
-  (get-mean-us [_] mean-us)
-  (get-var-us [_] var-us)
-  (get-decayed-max-us [_] decayed-max-us)
-  (get-timed-out [_] timed-out)
-  (get-detected-at-us [_] detected-at-us)
-  (get-check-count [_] check-count)
-  (get-sample-count [_] sample-count)
-  (get-panic-count [_] panic-count)
-  (get-stride-min [_] stride-min)
-  (get-stride-max [_] stride-max)
-  (get-stride-shrink-count [_] stride-shrink-count)
-  (get-burn-max [_] burn-max)
+             ^:unsynchronized-mutable ^boolean timed-out
+             ^:unsynchronized-mutable ^long detected-at-us
 
-  ;; Mutable field setters - with proper type casting for primitives
-  (set-last-sample-us! [_ val] (set! last-sample-us (long val)))
-  (set-steps-since! [_ val] (set! steps-since (long val)))
-  (set-stride-k! [_ val] (set! stride-k (long val)))
-  (set-mean-us! [_ val] (set! mean-us (double val)))
-  (set-var-us! [_ val] (set! var-us (double val)))
-  (set-decayed-max-us! [_ val] (set! decayed-max-us (double val)))
-  (set-timed-out! [_ val] (set! timed-out (boolean val)))
-  (set-detected-at-us! [_ val] (set! detected-at-us (long val)))
-  (set-check-count! [_ val] (set! check-count (long val)))
-  (set-sample-count! [_ val] (set! sample-count (long val)))
-  (set-panic-count! [_ val] (set! panic-count (long val)))
-  (set-stride-min! [_ val] (set! stride-min (long val)))
-  (set-stride-max! [_ val] (set! stride-max (long val)))
-  (set-stride-shrink-count! [_ val] (set! stride-shrink-count (long val)))
-  (set-burn-max! [_ val] (set! burn-max (double val))))
+             ;; Debug counters/gauges
+             ^:unsynchronized-mutable ^long check-count
+             ^:unsynchronized-mutable ^long sample-count
+             ^:unsynchronized-mutable ^long panic-count
+             ^:unsynchronized-mutable ^long stride-min
+             ^:unsynchronized-mutable ^long stride-max
+             ^:unsynchronized-mutable ^long stride-shrink-count
+             ^:unsynchronized-mutable ^double burn-max]
+
+     IGuard
+     ;; Immutable field getters
+     (get-deadline-us [_] deadline-us)
+     (get-target-overshoot-us [_] target-overshoot-us)
+     (get-start-us [_] start-us)
+
+     ;; Mutable field getters
+     (get-last-sample-us [_] last-sample-us)
+     (get-steps-since [_] steps-since)
+     (get-stride-k [_] stride-k)
+     (get-mean-us [_] mean-us)
+     (get-var-us [_] var-us)
+     (get-decayed-max-us [_] decayed-max-us)
+     (get-timed-out [_] timed-out)
+     (get-detected-at-us [_] detected-at-us)
+     (get-check-count [_] check-count)
+     (get-sample-count [_] sample-count)
+     (get-panic-count [_] panic-count)
+     (get-stride-min [_] stride-min)
+     (get-stride-max [_] stride-max)
+     (get-stride-shrink-count [_] stride-shrink-count)
+     (get-burn-max [_] burn-max)
+
+     ;; Mutable field setters - with proper type casting for primitives
+     (set-last-sample-us! [_ val] (set! last-sample-us (long val)))
+     (set-steps-since! [_ val] (set! steps-since (long val)))
+     (set-stride-k! [_ val] (set! stride-k (long val)))
+     (set-mean-us! [_ val] (set! mean-us (double val)))
+     (set-var-us! [_ val] (set! var-us (double val)))
+     (set-decayed-max-us! [_ val] (set! decayed-max-us (double val)))
+     (set-timed-out! [_ val] (set! timed-out (boolean val)))
+     (set-detected-at-us! [_ val] (set! detected-at-us (long val)))
+     (set-check-count! [_ val] (set! check-count (long val)))
+     (set-sample-count! [_ val] (set! sample-count (long val)))
+     (set-panic-count! [_ val] (set! panic-count (long val)))
+     (set-stride-min! [_ val] (set! stride-min (long val)))
+     (set-stride-max! [_ val] (set! stride-max (long val)))
+     (set-stride-shrink-count! [_ val] (set! stride-shrink-count (long val)))
+     (set-burn-max! [_ val] (set! burn-max (double val)))))
 
 ;; Core Algorithm Functions
 ;;
@@ -442,14 +486,30 @@
         initial-stride-shrink-count 0 ; Count stride decreases
         initial-burn-max 0.0 ; Track maximum burn ratio
 
-        g (Guard. deadline target-ov
-                  start
-                  initial-last-sample-us initial-steps-since initial-stride-k
-                  initial-mean-us initial-var-us initial-decayed-max-us
-                  initial-timed-out initial-detected-at-us
-                  initial-check-count initial-sample-count initial-panic-count
-                  initial-stride-min initial-stride-max initial-stride-shrink-count
-                  initial-burn-max)]
+        g #?(:bb (->BBGuard deadline target-ov start
+                            (volatile! {:last-sample-us initial-last-sample-us
+                                        :steps-since initial-steps-since
+                                        :stride-k initial-stride-k
+                                        :mean-us initial-mean-us
+                                        :var-us initial-var-us
+                                        :decayed-max-us initial-decayed-max-us
+                                        :timed-out initial-timed-out
+                                        :detected-at-us initial-detected-at-us
+                                        :check-count initial-check-count
+                                        :sample-count initial-sample-count
+                                        :panic-count initial-panic-count
+                                        :stride-min initial-stride-min
+                                        :stride-max initial-stride-max
+                                        :stride-shrink-count initial-stride-shrink-count
+                                        :burn-max initial-burn-max}))
+             :default (Guard. deadline target-ov
+                              start
+                              initial-last-sample-us initial-steps-since initial-stride-k
+                              initial-mean-us initial-var-us initial-decayed-max-us
+                              initial-timed-out initial-detected-at-us
+                              initial-check-count initial-sample-count initial-panic-count
+                              initial-stride-min initial-stride-max initial-stride-shrink-count
+                              initial-burn-max))]
     (fn
       ([] (timeout?-impl g))
       ([op]

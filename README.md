@@ -2,6 +2,8 @@
 
 *sinho* provides a matcher called ```=*``` for writing tests with a high signal-to-noise ratio.
 
+Works with Clojure, ClojureScript, and Babashka.
+
 ## Rationale
 
 See this notebook about [Signal-To-Noise Ratio of Software Tests](https://nextjournal.com/lomin/signal-to-noise-ratio-of-software-tests).
@@ -11,6 +13,12 @@ See this notebook about [Signal-To-Noise Ratio of Software Tests](https://nextjo
 *sinho* is available from Clojars. Add the following dependency to your *deps.edn* or *project.clj*:
 
 [![Current Version](https://clojars.org/me.lomin/sinho/latest-version.svg)](https://clojars.org/me.lomin/sinho)
+
+For Babashka, add to your `bb.edn`:
+
+```edn
+{:deps {me.lomin/sinho {:mvn/version "2.1.2"}}}
+```
 
 ### Examples
 
@@ -76,6 +84,13 @@ See this notebook about [Signal-To-Noise Ratio of Software Tests](https://nextjo
                      :person-of-note {{:instagram "@FCBayernEN"} :blocked}})
                 (query-twitter-for "@lomin"))))
 ```
+
+## Platform Notes
+
+The `=*` matcher API is identical across Clojure, ClojureScript, and Babashka. There are a few differences to be aware of:
+
+- **Babashka** requires version 0.9.159 or later.
+- **Test output:** On Clojure with [Kaocha](https://github.com/lambdaisland/kaocha), `=*` failures render as [deep-diff2](https://github.com/lambdaisland/deep-diff2) diffs. On ClojureScript, deep-diff2 diffs are available but without Kaocha integration. On Babashka, you get standard `clojure.test` failure output (no deep-diff2 or Kaocha).
 
 ## About
 

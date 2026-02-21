@@ -1,5 +1,9 @@
 {:min-bb-version "0.9.159"
  :paths ["bb"]
+ :deps {com.rpl/specter {:mvn/version "1.1.4"}
+        mvxcvi/arrangement {:mvn/version "2.1.0"}
+        nubank/matcher-combinators {:mvn/version "3.9.1"}
+        org.clojure/data.priority-map {:mvn/version "1.2.0"}}
 
  :tasks
  {:requires ([babashka.process :refer [shell]])
@@ -17,9 +21,23 @@
   {:doc "Run ClojureScript tests in browser at http://localhost:9158/"
    :task (apply clojure "-M:cljs-test watch browser-test" *command-line-args*)}
 
+  test:bb
+  {:doc "Run Babashka tests"
+   :extra-deps {org.clojure/test.check {:mvn/version "1.1.1"}}
+   :extra-paths ["src/cljc" "test/cljc"]
+   :task (let [nss '[me.lomin.sinho.diff-test
+                     me.lomin.sinho.example-test
+                     me.lomin.sinho.example-matcher-combinator-test
+                     me.lomin.sinho.timeout-test
+                     me.lomin.sinho.timeout-property-test]]
+           (run! require nss)
+           (let [result (apply (resolve 'clojure.test/run-tests) nss)]
+             (when (pos? (+ (:fail result) (:error result)))
+               (System/exit 1))))}
+
   test
   {:doc "Run entire test suite"
-   :depends [test:node test:clj]}
+   :depends [test:node test:clj test:bb]}
 
   testing
   {:doc "Watch mode for CLJS development"

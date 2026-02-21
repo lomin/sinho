@@ -1,13 +1,13 @@
 (ns me.lomin.sinho.search
   ^{:doc "chatda (kor. 찾다, to search) is a library to search for stuff in parallel"}
-  (:require [me.lomin.sinho.timeout :as timeout])
-  #?(:clj
-     (:import (java.util.concurrent TimeoutException)
-              (clojure.lang IPersistentStack Counted IEditableCollection
-                            ITransientCollection IMeta IObj)
-              (java.util PriorityQueue Comparator)))
-  #?(:cljs
-     (:require [tailrecursion.priority-map :as pm])))
+  (:require [me.lomin.sinho.timeout :as timeout]
+            #?@(:bb [[clojure.data.priority-map :refer [priority-map priority-map-keyfn]]]
+                :cljs [[tailrecursion.priority-map :as pm]]))
+  #?@(:bb []
+      :clj [(:import (java.util.concurrent TimeoutException)
+                     (clojure.lang IPersistentStack Counted IEditableCollection
+                                   ITransientCollection IMeta IObj)
+                     (java.util PriorityQueue Comparator))]))
 
 #?(:clj (set! *warn-on-reflection* true))
 
@@ -19,7 +19,8 @@
      (toString [_] message)))
 
 ;; Pre-create exception for performance
-(def timeout-exception #?(:clj (TimeoutException. "Timeout")
+(def timeout-exception #?(:bb (ex-info "Timeout" {:type ::timeout})
+                          :clj (TimeoutException. "Timeout")
                           :cljs (TimeoutException. "Timeout")))
 
 ;; # Protocols
@@ -38,7 +39,21 @@
 
 ;; # Platform-specific Heap Implementation
 
-#?(:clj
+#?(:bb
+   ;; BB: Priority map based implementation (no deftype in Babashka)
+   ;; Uses BB's built-in priority-map (ascending order = smaller-is-better).
+   (do
+     (defn make-heap [compare-priority]
+       (if (neg? (compare-priority 1 0))
+         (priority-map-keyfn -)
+         (priority-map)))
+
+     (defn heap-into [heap search-xf items]
+       (into heap
+             (comp search-xf (map (fn [item] [item (priority item)])))
+             items)))
+
+   :clj
    ;; CLJ: High-performance custom heap using Java's PriorityQueue
    (do
      (declare make-heap)
@@ -68,7 +83,10 @@
        (new Heap
             compare-priority
             (new PriorityQueue
-                 ^Comparator (priority-comparator compare-priority)))))
+                 ^Comparator (priority-comparator compare-priority))))
+
+     (defn heap-into [heap search-xf items]
+       (into heap search-xf items)))
 
    :cljs
    ;; CLJS: Priority map based implementation with unified interface
@@ -111,7 +129,10 @@
 
      (defn make-heap [compare-priority]
        (Heap. compare-priority
-              (pm/priority-map-by compare-priority)))))
+              (pm/priority-map-by compare-priority)))
+
+     (defn heap-into [heap search-xf items]
+       (into heap search-xf items))))
 
 (defn do-search [root-node config]
   (let [{search-xf :search-xf compare-priority :compare-priority} config]
@@ -120,8 +141,10 @@
       (let [children (children node)]
         (if-let [result# (stop node children)]
           result#
-          (let [heap' (try (into heap search-xf children)
-                           (catch TimeoutException _))
+          (let [heap' (try (heap-into heap search-xf children)
+                           (catch #?(:bb Exception
+                                     :clj TimeoutException
+                                     :cljs TimeoutException) _))
                 head-node+priority (peek heap')]
             (if head-node+priority
               (let [next-node (combine (first head-node+priority) node)
@@ -140,7 +163,7 @@
 (def DEFAULT-CONFIG
   {:root-node nil
    :search-xf IDENTITY-XFORM
-   :compare-priority larger-is-better
+   :compare-priority larger-is-better ; must be a comparator over numeric priorities (tested with (compare-priority 1 0) on BB)
    :timeout 1000 ; 1 second default timeout
    })
 

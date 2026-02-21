@@ -1,13 +1,16 @@
 (ns me.lomin.sinho.matcher
   (:require
-   #?(:clj [clojure.test :as test]
+   #?(:bb [clojure.test :as test]
+      :clj [clojure.test :as test]
       :cljs [cljs.test :as test])
    [clojure.walk :as walk]
    [com.rpl.specter :as s]
    [matcher-combinators.model :refer
     [->Missing ->Unexpected ->Mismatch]]
-   [lambdaisland.deep-diff2.diff-impl :as diff2]
-   #?(:clj [kaocha.report :as report])
+   #?@(:bb []
+       :clj [[lambdaisland.deep-diff2.diff-impl :as diff2]
+             [kaocha.report :as report]]
+       :cljs [[lambdaisland.deep-diff2.diff-impl :as diff2]])
    [me.lomin.sinho.a-star :as a-star]
    [me.lomin.sinho.search :as search]
    [me.lomin.sinho.diff :as diff])
@@ -41,17 +44,20 @@
 (defn mismatch? [x]
   (= (type x) mismatch-type))
 
-(defn to-diff2
-  [form]
-  (walk/postwalk (fn [x]
-                   (cond (insertion? x) (diff2/->Insertion (:actual x))
-                         (deletion? x) (diff2/->Deletion (:expected x))
-                         (mismatch? x) (diff2/->Mismatch (:expected x)
-                                                         (:actual x))
-                         :else x))
-                 form))
+#?(:bb nil
+   :default
+   (defn to-diff2
+     [form]
+     (walk/postwalk (fn [x]
+                      (cond (insertion? x) (diff2/->Insertion (:actual x))
+                            (deletion? x) (diff2/->Deletion (:expected x))
+                            (mismatch? x) (diff2/->Mismatch (:expected x)
+                                                            (:actual x))
+                            :else x))
+                    form)))
 
-#?(:clj
+#?(:bb nil
+   :clj
    (defmethod kaocha.report/print-expr '=* [m]
      (if (= (:actual m) :timeout)
        (report/print-expression (update m :actual list))
@@ -325,5 +331,8 @@
        :timeout
        (let [diff-result (diff/diff (:diffs $) (:source $))
              cost (:a-star:costs $)]
-         (with-meta diff-result {:sinho/cost cost}))))))
+         (if #?(:cljs (satisfies? IWithMeta diff-result)
+                :default (instance? clojure.lang.IObj diff-result))
+           (with-meta diff-result {:sinho/cost cost})
+           diff-result))))))
 
