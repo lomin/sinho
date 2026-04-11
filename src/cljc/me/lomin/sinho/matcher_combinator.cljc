@@ -7,8 +7,8 @@
    [me.lomin.sinho.matcher :as sinho]))
 
 (defn calculate-weight
-  "Calculate mismatch weight from sinho result using A* cost metadata.
-   The A* algorithm has already computed the optimal cost during search,
+  "Calculate mismatch weight from sinho result using match cost metadata.
+   The coinductive engine computes the optimal cost during matching,
    so we can reuse it directly rather than counting diff nodes."
   [sinho-result]
   (or (:sinho/cost (meta sinho-result)) 0))
@@ -28,7 +28,7 @@
     (= :timeout sinho-result)
     {::result/type :mismatch
      ::result/value (model/->InvalidMatcherContext
-                     "Sinho matcher timed out during A* search")
+                     "Sinho matcher timed out during coinductive matching")
      ::result/weight 1}
 
     ;; Mismatch with diff structure

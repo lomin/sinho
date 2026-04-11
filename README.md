@@ -92,6 +92,49 @@ The `=*` matcher API is identical across Clojure, ClojureScript, and Babashka. T
 - **Babashka** requires version 0.9.159 or later.
 - **Test output:** On Clojure with [Kaocha](https://github.com/lambdaisland/kaocha), `=*` failures render as [deep-diff2](https://github.com/lambdaisland/deep-diff2) diffs. On ClojureScript, deep-diff2 diffs are available but without Kaocha integration. On Babashka, you get standard `clojure.test` failure output (no deep-diff2 or Kaocha).
 
+## Predicate Matching with `pred`
+
+*New in 3.0.* Use `(pred f)` to match values by predicate instead of equality:
+
+```clojure
+(require '[me.lomin.sinho.pred :refer [pred named-pred]])
+
+;; Type check in a map
+(=* {:name (pred string?)
+     :age  (pred #(< 0 % 200))}
+    {:name "Alice" :age 30 :email "a@b.com"})
+;; => match (returns expected)
+
+;; Named predicate for readable failure messages
+(=* (named-pred "positive?" pos?) -5)
+;; => #Mismatch{:expected #Pred{:label "positive?"}, :actual -5}
+```
+
+**Bare functions** in expected positions are compared by value equality, not
+interpreted as predicates. This eliminates the ambiguity between
+"predicate-on-actual" and "literal function-value equality."
+
+## Migration from 2.x to 3.0
+
+1. **Wrap inline predicates with `pred`.** If you previously used bare functions
+   in expected positions expecting predicate behavior, wrap them:
+   ```clojure
+   ;; 2.x (ambiguous)
+   (=* string? actual)
+
+   ;; 3.0 (unambiguous)
+   (=* (pred string?) actual)
+   ```
+
+2. **Diff shapes may differ on ambiguous sets.** If your tests pinned specific
+   diff shapes for sets of structurally-similar compound elements, the 3.0
+   greedy matching may produce a different (but still correct) diff. Update
+   those assertions or switch to verdict-level assertions (`(= expected (=* ...))`).
+
+3. **Performance is dramatically better.** Map comparison is `O(n)` for atom
+   keys (down from `O(n!)` worst case). Set comparison is `O(n^3)` for verdicts
+   (down from factorial). Sequential comparison is `O(m*n)` (down from exponential).
+
 ## About
 
 Sinho (신호) means signal in Korean.
