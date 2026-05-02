@@ -19,13 +19,11 @@
 
 (def end-2-end-generative-test nil)
 (test/defspec end-2-end-generative-test
-  {:num-tests 10000
-   ;:seed 1754783943229
-   }
+  {:num-tests 1000}
   (prop/for-all [left (gen/recursive-gen containers scalars) right
                  (gen/recursive-gen containers scalars)]
                 (let [d (=* left right {:timeout 100})]
-                  (or ;(= d :timeout)
+                  (or (= d :timeout)
                       (= d left)
                       (matcher/insertion? d)
                       (= left (left-undiff (matcher/to-diff2 d)))

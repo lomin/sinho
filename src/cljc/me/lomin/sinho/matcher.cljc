@@ -22,6 +22,7 @@
        :clj [[lambdaisland.deep-diff2.diff-impl :as diff2]
              [kaocha.report :as report]]
        :cljs [[lambdaisland.deep-diff2.diff-impl :as diff2]])
+   [me.lomin.sinho.bipartite :as bipartite]
    [me.lomin.sinho.diff :as diff]
    [me.lomin.sinho.pred :as pred]
    [me.lomin.sinho.timeout :as timeout])
@@ -89,74 +90,53 @@
     (set? expected)         (if (set? actual) :set :default)
     :else                   :atom))
 
-;; ── Coinductive engine state ────────────────────────────────────
+;; --- coinductive ---
 
-(defn- make-ctx
+(defn make-ctx
   "Create a matching context with coinductive assumption set."
   []
   {:seen #{}})
 
-(defn- assume-pair
+(defn assume-pair
   "Record a pair as assumed-equal in the coinductive set."
   [ctx expected actual]
   (update ctx :seen conj [expected actual]))
 
-(defn- pair-assumed?
+(defn pair-assumed?
   "Check if a pair is already in the assumption set."
   [ctx expected actual]
   (contains? (:seen ctx) [expected actual]))
 
-;; ── Maximum bipartite matching (augmenting paths) ───────────────
-;; Used for verdict-correct set/map matching: find whether a perfect
-;; matching exists on the zero-cost subgraph before falling back to
-;; greedy for diff generation.
-
-(defn- augmenting-path?
-  "Try to find an augmenting path from left node u.
-   adj-fn: (fn [i]) -> set of right indices that i can match to (cost 0).
-   match-r: volatile map of right-index -> left-index assignments.
-   visited: volatile set of visited right indices in this DFS."
-  [u adj-fn match-r visited]
-  (some (fn [v]
-          (when-not (contains? @visited v)
-            (vswap! visited conj v)
-            (let [prev (get @match-r v)]
-              (when (or (nil? prev)
-                        (augmenting-path? prev adj-fn match-r visited))
-                (vswap! match-r assoc v u)
-                true))))
-        (adj-fn u)))
-
-(defn- max-bipartite-matching-count
-  "Find maximum bipartite matching size using augmenting paths.
-   adj-fn: (fn [left-idx]) -> seq of right indices with cost 0.
-   m: number of left nodes."
-  [adj-fn m]
-  (let [match-r (volatile! {})]
-    (reduce (fn [count i]
-              (let [visited (volatile! #{})]
-                (if (augmenting-path? i adj-fn match-r visited)
-                  (inc count)
-                  count)))
-            0
-            (range m))))
-
-(defn- max-bipartite-matching
-  "Find maximum bipartite matching, return the assignment map.
-   adj-fn: (fn [left-idx]) -> seq of right indices with cost 0.
-   m: number of left nodes.
-   Returns: map of left-idx -> right-idx for matched pairs."
-  [adj-fn m]
-  (let [match-r (volatile! {})]
-    (doseq [i (range m)]
-      (let [visited (volatile! #{})]
-        (augmenting-path? i adj-fn match-r visited)))
-    ;; Invert: match-r is right->left, we want left->right
-    (reduce-kv (fn [acc r l] (assoc acc l r)) {} @match-r)))
-
 ;; ── Cost computation (for set matching) ─────────────────────────
 
 (declare match-cost)
+
+(defn- stable-hash-for-pair
+  "Deterministic hash for a (left, right) pair for tie-breaking."
+  [l r]
+  (hash [l r]))
+
+(defn- sorted-cost-pairs
+  "All (i,j) pairs ordered by (cost, stable-hash) for greedy assignment."
+  [cost-fn l-vec r-vec m n]
+  (sort-by (juxt :cost :hash)
+           (for [i (range m) j (range n)]
+             {:i i :j j
+              :cost (cost-fn i j)
+              :hash (stable-hash-for-pair (nth l-vec i) (nth r-vec j))})))
+
+(defn- match-or-greedy-cost
+  "Verdict-correct cost for a bipartite assignment problem.
+   Returns 0 if every left node matches at cost 0; otherwise greedy total
+   plus 1 per unmatched left node."
+  [cost-fn l-vec r-vec m n]
+  (let [{:keys [zero-adj]} (bipartite/build-cost-matrix cost-fn m n)]
+    (if (= (bipartite/max-bipartite-matching-count zero-adj m) m)
+      0
+      (let [{:keys [total used-i]}
+            (bipartite/greedy-assignment
+             (sorted-cost-pairs cost-fn l-vec r-vec m n))]
+        (+ total (- m (count used-i)))))))
 
 (defn- atom-cost
   "Cost of matching two atoms: 0 if equal, 1 if not."
@@ -191,35 +171,6 @@
                 (long (min replace-cost delete-cost insert-cost))))))
     (aget dp (idx m n))))
 
-(defn- build-cost-matrix
-  "Build adjacency data for set/map bipartite matching.
-   Returns {:zero-adj (fn [i] -> seq of j with cost 0)}."
-  [cost-fn m n]
-  (let [pairs (for [i (range m)
-                    j (range n)]
-                {:i i :j j :cost (cost-fn i j)})
-        zero-adj (reduce (fn [acc {:keys [i j cost]}]
-                           (if (zero? cost)
-                             (update acc i (fnil conj []) j)
-                             acc))
-                         {}
-                         pairs)]
-    {:zero-adj (fn [i] (get zero-adj i []))}))
-
-(defn- greedy-assignment
-  "Greedy bipartite assignment from sorted pairs."
-  [sorted-pairs]
-  (reduce (fn [{:keys [used-i used-j total pairs] :as acc}
-               {:keys [i j cost]}]
-            (if (or (contains? used-i i) (contains? used-j j))
-              acc
-              {:used-i (conj used-i i)
-               :used-j (conj used-j j)
-               :total (+ total cost)
-               :pairs (conj pairs [i j])}))
-          {:used-i #{} :used-j #{} :total 0 :pairs []}
-          sorted-pairs))
-
 (defn- map-entry-cost
   "Cost of matching two map entries (key-pair + value-pair)."
   [ctx [ek ev] [ak av]]
@@ -231,12 +182,10 @@
    exactly in right, uses exact bipartite matching on zero-cost subgraph
    for verdict correctness, then greedy for cost estimation."
   [ctx expected actual]
-  (let [;; Phase 1: exact key matches
-        exact-keys (filter #(contains? actual %) (keys expected))
+  (let [exact-keys (filter #(contains? actual %) (keys expected))
         exact-cost (reduce (fn [c k]
                              (+ c (match-cost ctx (get expected k) (get actual k))))
                            0 exact-keys)
-        ;; Phase 2: remaining left entries need bipartite matching
         remaining-left (apply dissoc expected exact-keys)
         remaining-right (apply dissoc actual exact-keys)]
     (if (empty? remaining-left)
@@ -246,27 +195,10 @@
             m (count l-entries)
             n (count r-entries)
             cost-fn (fn [i j] (map-entry-cost ctx
-                                               (nth l-entries i)
-                                               (nth r-entries j)))
-            {:keys [zero-adj]} (build-cost-matrix cost-fn m n)
-            match-count (max-bipartite-matching-count zero-adj m)]
-        (if (= match-count m)
-          exact-cost  ; All remaining entries matched at zero cost
-          ;; Greedy for cost estimation
-          (let [pairs (for [i (range m) j (range n)]
-                        {:i i :j j
-                         :cost (cost-fn i j)
-                         :hash (hash (str (pr-str (nth l-entries i))
-                                          (pr-str (nth r-entries j))))})
-                sorted (sort-by (juxt :cost :hash) pairs)
-                {:keys [total used-i]} (greedy-assignment sorted)
-                unmatched (- m (count used-i))]
-            (+ exact-cost total unmatched)))))))
-
-(defn- set-cost-for-pair
-  "Cost of matching an individual set element pair."
-  [ctx l r]
-  (match-cost ctx l r))
+                                              (nth l-entries i)
+                                              (nth r-entries j)))]
+        (+ exact-cost
+           (match-or-greedy-cost cost-fn l-entries r-entries m n))))))
 
 (defn- set-cost
   "Cost of matching two sets. Uses exact maximum bipartite matching
@@ -278,24 +210,10 @@
           act-vec (vec actual)
           m (count exp-vec)
           n (count act-vec)
-          cost-fn (fn [i j] (set-cost-for-pair ctx
-                                                (nth exp-vec i)
-                                                (nth act-vec j)))
-          {:keys [zero-adj]} (build-cost-matrix cost-fn m n)
-          ;; Exact matching: can all left elements be matched at cost 0?
-          match-count (max-bipartite-matching-count zero-adj m)]
-      (if (= match-count m)
-        0  ; All left elements have zero-cost matches
-        ;; Fall back to greedy for cost estimation
-        (let [pairs (for [i (range m) j (range n)]
-                      {:i i :j j
-                       :cost (cost-fn i j)
-                       :hash (hash (str (pr-str (nth exp-vec i))
-                                        (pr-str (nth act-vec j))))})
-              sorted (sort-by (juxt :cost :hash) pairs)
-              {:keys [total used-i]} (greedy-assignment sorted)
-              unmatched (- m (count used-i))]
-          (+ total unmatched))))))
+          cost-fn (fn [i j] (match-cost ctx
+                                        (nth exp-vec i)
+                                        (nth act-vec j)))]
+      (match-or-greedy-cost cost-fn exp-vec act-vec m n))))
 
 (defn- pred-cost
   "Cost of a pred match: 0 if predicate passes, 1 otherwise."
@@ -319,103 +237,117 @@
         :default    1))))
 
 ;; ── Diff generation ─────────────────────────────────────────────
-;; The engine walks expected, dispatches on type, generates diff paths
-;; compatible with sinho's existing diff.cljc path-tree infrastructure.
+;; `coinductive-diff` walks expected, dispatches on type, and emits diff
+;; paths compatible with sinho's existing diff.cljc path-tree infrastructure.
 
 (declare coinductive-diff)
 
+(defn- bipartite-zero-match
+  "Bipartite matching on the zero-cost subgraph. Returns left→right map."
+  [cost-fn m n]
+  (let [{:keys [zero-adj]} (bipartite/build-cost-matrix cost-fn m n)]
+    (bipartite/max-bipartite-matching zero-adj m)))
+
+(defn- combine-results
+  "Aggregate a sequence of {:paths :cost} maps into one."
+  [results]
+  {:paths (mapcat :paths results)
+   :cost (reduce + 0 (map :cost results))})
+
+(defn- greedy-pair-diffs
+  "Greedy assignment over (l-vec, r-vec) with tie-broken ordering.
+   `matched-fn [l r]` and `missing-fn [l]` each return {:paths :cost}."
+  [cost-fn l-vec r-vec m n matched-fn missing-fn]
+  (let [{:keys [used-i pairs]}
+        (bipartite/greedy-assignment (sorted-cost-pairs cost-fn l-vec r-vec m n))
+        matched-results (map (fn [[i j]] (matched-fn (nth l-vec i) (nth r-vec j)))
+                             pairs)
+        missing-results (map (fn [i] (missing-fn (nth l-vec i)))
+                             (remove used-i (range m)))]
+    (combine-results (concat matched-results missing-results))))
+
+(defn- match-or-greedy-diff
+  "Verdict-correct diff for a bipartite assignment problem.
+   On exact zero-cost match, applies `matched-handler` to the left→right
+   assignment. Otherwise falls back to greedy with `matched-fn`/`missing-fn`."
+  [cost-fn l-vec r-vec m n matched-handler matched-fn missing-fn]
+  (let [exact-match (bipartite-zero-match cost-fn m n)]
+    (if (= (count exact-match) m)
+      (matched-handler exact-match)
+      (greedy-pair-diffs cost-fn l-vec r-vec m n matched-fn missing-fn))))
+
 (defn- diff-atom
-  "Diff two atoms. Returns a list of diff-path pairs."
   [_ctx left-path right-path expected actual]
   (if (= expected actual)
-    '()
-    (list [left-path right-path])))
+    {:paths '() :cost 0}
+    {:paths (list [left-path right-path]) :cost 1}))
 
 (defn- diff-pred
-  "Diff a pred-wrapped expected against actual."
   [_ctx left-path right-path expected actual]
   (if ((:f expected) actual)
-    '()
-    (list [left-path right-path])))
+    {:paths '() :cost 0}
+    {:paths (list [left-path right-path]) :cost 1}))
 
 (defn- diff-default
-  "Diff when types are incompatible."
   [_ctx left-path right-path _expected _actual]
-  (list [left-path right-path]))
+  {:paths (list [left-path right-path]) :cost 1})
 
 (defn- diff-map-entry
   "Diff a matched map entry pair: diff key then value."
   [ctx left-path right-path [ek ev] [ak av]]
-  (let [key-diffs (coinductive-diff ctx
-                                     (conj left-path [:m-key ek])
-                                     (conj right-path [:m-key ak])
-                                     ek ak)
-        val-diffs (coinductive-diff ctx
-                                     (conj left-path [:m-val ek])
-                                     (conj right-path [:m-val ak])
-                                     ev av)]
-    (concat key-diffs val-diffs)))
+  (combine-results
+   [(coinductive-diff ctx
+                      (conj left-path [:m-key ek])
+                      (conj right-path [:m-key ak])
+                      ek ak)
+    (coinductive-diff ctx
+                      (conj left-path [:m-val ek])
+                      (conj right-path [:m-val ak])
+                      ev av)]))
+
+(defn- diff-map-exact-key-diffs
+  "Phase 1: recurse into values of keys present in both maps."
+  [ctx left-path right-path expected actual exact-keys]
+  (combine-results
+   (map (fn [k]
+          (coinductive-diff ctx
+                            (conj left-path [:m-val k])
+                            (conj right-path [:m-val k])
+                            (get expected k) (get actual k)))
+        exact-keys)))
 
 (defn- diff-map
-  "Diff two maps. Exact key lookup first, then exact bipartite matching
-   on zero-cost subgraph for verdict correctness, with greedy fallback
-   for diff generation."
+  "Diff two maps. Exact key lookup first, then bipartite matching on the
+   zero-cost subgraph for verdict correctness, with greedy fallback for
+   diff generation on the remaining entries."
   [ctx left-path right-path expected actual]
-  (let [;; Phase 1: exact key matches
-        exact-keys (filter #(contains? actual %) (keys expected))
-        exact-diffs (mapcat
-                     (fn [k]
-                       (coinductive-diff ctx
-                                         (conj left-path [:m-val k])
-                                         (conj right-path [:m-val k])
-                                         (get expected k)
-                                         (get actual k)))
-                     exact-keys)
-        ;; Phase 2: remaining entries
-        remaining-left (apply dissoc expected exact-keys)
-        remaining-right (apply dissoc actual exact-keys)]
-    (if (empty? remaining-left)
-      exact-diffs
-      ;; Bipartite matching on remaining map entries
-      (let [l-entries (vec remaining-left)
-            r-entries (vec remaining-right)
-            m (count l-entries)
-            n (count r-entries)
-            cost-fn (fn [i j] (map-entry-cost (make-ctx)
-                                               (nth l-entries i)
-                                               (nth r-entries j)))
-            {:keys [zero-adj]} (build-cost-matrix cost-fn m n)
-            exact-match (max-bipartite-matching zero-adj m)]
-        (if (= (count exact-match) m)
-          ;; All remaining entries matched at zero cost: recurse for sub-diffs
-          (let [matched-diffs (mapcat
-                               (fn [[li ri]]
-                                 (diff-map-entry ctx left-path right-path
-                                                 (nth l-entries li)
-                                                 (nth r-entries ri)))
-                               exact-match)]
-            (concat exact-diffs matched-diffs))
-          ;; Greedy fallback for diff generation
-          (let [pairs (for [i (range m) j (range n)]
-                        {:i i :j j
-                         :cost (cost-fn i j)
-                         :hash (hash (str (pr-str (nth l-entries i))
-                                          (pr-str (nth r-entries j))))})
-                sorted (sort-by (juxt :cost :hash) pairs)
-                {:keys [used-i pairs]} (greedy-assignment sorted)
-                matched-diffs (mapcat
-                               (fn [[i j]]
-                                 (diff-map-entry ctx left-path right-path
-                                                 (nth l-entries i)
-                                                 (nth r-entries j)))
-                               pairs)
-                unmatched-left (remove used-i (range m))
-                missing-diffs (map (fn [i]
-                                     (let [[k _v] (nth l-entries i)]
-                                       [(conj left-path [:m-key k])
-                                        (conj right-path [:m-key ::diff/nil])]))
-                                   unmatched-left)]
-            (concat exact-diffs matched-diffs missing-diffs)))))))
+  (let [exact-keys (filter #(contains? actual %) (keys expected))
+        exact-result (diff-map-exact-key-diffs ctx left-path right-path
+                                               expected actual exact-keys)
+        l-entries (vec (apply dissoc expected exact-keys))
+        r-entries (vec (apply dissoc actual exact-keys))
+        m (count l-entries)
+        n (count r-entries)]
+    (if (zero? m)
+      exact-result
+      (let [cost-fn (fn [i j] (map-entry-cost ctx
+                                              (nth l-entries i)
+                                              (nth r-entries j)))
+            matched-fn (fn [l-entry r-entry]
+                         (diff-map-entry ctx left-path right-path l-entry r-entry))
+            missing-fn (fn [[k _v]]
+                         {:paths [[(conj left-path [:m-key k])
+                                   (conj right-path [:m-key ::diff/nil])]]
+                          :cost 1})
+            phase2 (match-or-greedy-diff
+                    cost-fn l-entries r-entries m n
+                    (fn [exact-match]
+                      (combine-results
+                       (map (fn [[li ri]]
+                              (matched-fn (nth l-entries li) (nth r-entries ri)))
+                            exact-match)))
+                    matched-fn missing-fn)]
+        (combine-results [exact-result phase2])))))
 
 ;; ── Sequential diff via edit-distance DP with backtracking ──────
 
@@ -430,8 +362,7 @@
       (aset dp (idx 0 j) 0))
     (dotimes [i m]
       (dotimes [j n]
-        (let [sub-cost (match-cost (make-ctx)
-                                   (nth exp-vec i) (nth act-vec j))
+        (let [sub-cost (match-cost ctx (nth exp-vec i) (nth act-vec j))
               replace-cost (+ (aget dp (idx i j)) sub-cost)
               delete-cost  (+ (aget dp (idx i (inc j))) 1)
               insert-cost  (+ (aget dp (idx (inc i) j)) 0)]
@@ -442,7 +373,7 @@
 (defn- backtrack-seq-edits
   "Backtrack through DP table to produce a forward edit script.
    Returns a sequence of [:match i j], [:delete i], [:insert j] ops."
-  [dp exp-vec act-vec m n]
+  [ctx dp exp-vec act-vec m n]
   (let [idx (fn [i j] (+ (* i (inc n)) j))]
     (loop [i m, j n, ops '()]
       (cond
@@ -450,7 +381,7 @@
         ops
 
         (and (pos? i) (pos? j)
-             (let [sub-cost (match-cost (make-ctx)
+             (let [sub-cost (match-cost ctx
                                         (nth exp-vec (dec i))
                                         (nth act-vec (dec j)))]
                (= (aget dp (idx i j))
@@ -465,38 +396,40 @@
         :else
         (recur i (dec j) (cons [:insert (dec j)] ops))))))
 
+(defn- seq-op->result
+  "Convert one forward-edit op into a {:paths :cost} result."
+  [ctx left-path right-path exp-vec act-vec out-idx [op & args]]
+  (case op
+    :match
+    (let [[ei ai] args]
+      (coinductive-diff ctx
+                        (conj left-path [:index out-idx])
+                        (conj right-path [:index ai])
+                        (nth exp-vec ei) (nth act-vec ai)))
+
+    :delete
+    {:paths [[(conj left-path [:index out-idx])
+              (conj right-path [:index -1 :nil])]]
+     :cost 1}
+
+    :insert
+    (let [[ai] args]
+      {:paths [[(conj left-path [:index out-idx :before])
+                (conj right-path [:index ai])]]
+       :cost 0})))
+
 (defn- seq-edits->diff-paths
-  "Convert forward edit script to diff paths, tracking indices.
-   Insertions get unique left-paths via a virtual output index
-   that advances for all operations (matches, deletes, inserts)."
+  "Fold a forward edit script into a combined {:paths :cost} result."
   [ctx left-path right-path exp-vec act-vec ops]
-  (loop [ops ops
-         out-idx 0  ; virtual output index, advances for every op
-         diffs '()]
+  (loop [ops ops, out-idx 0, paths [], cost 0]
     (if (empty? ops)
-      diffs
-      (let [[op & args] (first ops)]
-        (case op
-          :match
-          (let [[ei ai] args
-                lp (conj left-path [:index out-idx])
-                rp (conj right-path [:index ai])
-                sub-diffs (coinductive-diff ctx lp rp
-                                            (nth exp-vec ei)
-                                            (nth act-vec ai))]
-            (recur (rest ops) (inc out-idx) (into diffs sub-diffs)))
-
-          :delete
-          (let [[_ei] args
-                lp (conj left-path [:index out-idx])
-                rp (conj right-path [:index -1 :nil])]
-            (recur (rest ops) (inc out-idx) (conj diffs [lp rp])))
-
-          :insert
-          (let [[ai] args
-                lp (conj left-path [:index out-idx :before])
-                rp (conj right-path [:index ai])]
-            (recur (rest ops) (inc out-idx) (conj diffs [lp rp]))))))))
+      {:paths paths :cost cost}
+      (let [r (seq-op->result ctx left-path right-path
+                              exp-vec act-vec out-idx (first ops))]
+        (recur (rest ops)
+               (inc out-idx)
+               (into paths (:paths r))
+               (+ cost (:cost r)))))))
 
 (defn- diff-sequential
   "Diff two sequences using edit-distance DP with forward edit script.
@@ -507,74 +440,49 @@
         m (count exp-vec)
         n (count act-vec)]
     (if (and (zero? m) (zero? n))
-      '()
+      {:paths '() :cost 0}
       (let [dp (build-seq-dp ctx exp-vec act-vec m n)
-            ops (backtrack-seq-edits dp exp-vec act-vec m n)]
+            ops (backtrack-seq-edits ctx dp exp-vec act-vec m n)]
         (seq-edits->diff-paths ctx left-path right-path
                                exp-vec act-vec ops)))))
 
 ;; ── Set diff via greedy bipartite matching ──────────────────────
 
-(defn- stable-hash-for-pair
-  "Deterministic hash for a (left, right) pair for tie-breaking."
-  [l r]
-  (hash (str (pr-str l) (pr-str r))))
-
 (defn- diff-set
-  "Diff two sets. Uses exact bipartite matching on zero-cost subgraph
-   for correct verdicts, then greedy for diff path generation."
+  "Diff two sets. Exact bipartite matching on the zero-cost subgraph for
+   verdict correctness; greedy fallback for diff path generation."
   [ctx left-path right-path expected actual]
-  (if (every? (fn [e] (contains? actual e)) expected)
-    '()
+  (if (every? #(contains? actual %) expected)
+    {:paths '() :cost 0}
     (let [exp-vec (vec expected)
           act-vec (vec actual)
           m (count exp-vec)
           n (count act-vec)
-          cost-fn (fn [i j] (match-cost (make-ctx)
-                                         (nth exp-vec i)
-                                         (nth act-vec j)))
-          {:keys [zero-adj]} (build-cost-matrix cost-fn m n)
-          ;; Exact matching: can all left elements be matched at cost 0?
-          exact-match (max-bipartite-matching zero-adj m)]
-      (if (= (count exact-match) m)
-        ;; All matched at zero cost: no diffs needed
-        '()
-        ;; Some elements unmatched: use greedy for diff generation
-        (let [pairs (for [i (range m) j (range n)]
-                      {:i i :j j
-                       :cost (cost-fn i j)
-                       :hash (stable-hash-for-pair (nth exp-vec i)
-                                                   (nth act-vec j))})
-              sorted (sort-by (juxt :cost :hash) pairs)
-              {:keys [used-i pairs]} (greedy-assignment sorted)
-              matched-diffs (mapcat
-                             (fn [[i j]]
-                               (let [l (nth exp-vec i)
-                                     r (nth act-vec j)
-                                     lp (conj left-path [:set l])
-                                     rp (conj right-path [:set r])]
-                                 (coinductive-diff ctx lp rp l r)))
-                             pairs)
-              unmatched-left (remove used-i (range m))
-              missing-diffs (map (fn [i]
-                                   (let [l (nth exp-vec i)
-                                         lp (conj left-path [:set l])
-                                         rp (conj right-path [:set ::diff/nil])]
-                                     [lp rp]))
-                                 unmatched-left)]
-          (concat matched-diffs missing-diffs))))))
+          cost-fn (fn [i j] (match-cost ctx (nth exp-vec i) (nth act-vec j)))]
+      (match-or-greedy-diff
+       cost-fn exp-vec act-vec m n
+       (constantly {:paths '() :cost 0})
+       (fn [l r]
+         (coinductive-diff ctx
+                           (conj left-path [:set l])
+                           (conj right-path [:set r])
+                           l r))
+       (fn [l]
+         {:paths [[(conj left-path [:set l])
+                   (conj right-path [:set ::diff/nil])]]
+          :cost 1})))))
 
 ;; ── Main coinductive dispatch ───────────────────────────────────
 
 (defn coinductive-diff
-  "Walk expected, dispatch on type, generate diff paths.
+  "Walk expected, dispatch on type, and return {:paths :cost}.
    Uses coinductive assumption set to handle recursive structures."
   [ctx left-path right-path expected actual]
   (if (pair-assumed? ctx expected actual)
-    '()
+    {:paths '() :cost 0}
     (let [ctx' (assume-pair ctx expected actual)]
       (case (equality-partition expected actual)
-        :equal      '()
+        :equal      {:paths '() :cost 0}
         :pred       (diff-pred ctx' left-path right-path expected actual)
         :atom       (diff-atom ctx' left-path right-path expected actual)
         :sequential (diff-sequential ctx' left-path right-path expected actual)
@@ -622,7 +530,7 @@
 (defn compute-diff-paths
   "Run the coinductive engine to produce diff paths."
   [left right]
-  (coinductive-diff (make-ctx) [] [] left right))
+  (:paths (coinductive-diff (make-ctx) [] [] left right)))
 
 (defn compute-cost
   "Compute the total match cost."
@@ -639,16 +547,12 @@
          timeout-fn (when timeout-ms (timeout/make-timeout timeout-ms))
          left (prepare a)
          right (prepare b)]
-     ;; Check timeout before starting diff computation
      (if (and timeout-fn (timeout-fn))
        :timeout
-       (let [diff-paths (compute-diff-paths left right)]
-         (if (empty? diff-paths)
-           ;; Perfect match: return expected
+       (let [{:keys [paths cost]} (coinductive-diff (make-ctx) [] [] left right)]
+         (if (empty? paths)
            a
-           ;; Mismatch: produce diff via the path-tree infrastructure
-           (let [diff-result (diff/diff diff-paths [left right])
-                 cost (compute-cost left right)]
+           (let [diff-result (diff/diff paths [left right])]
              (if #?(:cljs (satisfies? IWithMeta diff-result)
                     :default (instance? clojure.lang.IObj diff-result))
                (with-meta diff-result {:sinho/cost cost})
